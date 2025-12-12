@@ -40,8 +40,8 @@ TOTAL_TIMESTEPS = 100_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
 # --------------------
 
-env_id = "LunarLander-v3"
-task_description = """
+ENV_ID = "LunarLander-v3"
+TASK_DESC = """
 ## Task
 Your task is to control the lander to land on the landing pad smoothly without crashing.
 
@@ -147,13 +147,14 @@ async def generate_reward(session, user_prompt, iter_idx, sample_idx):
 
 def train_baseline():
     train_and_eval(
-        env_id,
+        ENV_ID,
         N_ENVS,
         EurekaWrapper,
         {"is_eval": True},
         "",
         TOTAL_TIMESTEPS,
         FEEDBACK_FREQ,
+        "baseline",
     )
 
 
@@ -170,8 +171,8 @@ async def main():
     for sample_idx in range(SAMPLES_PER_ITER):
         session = SQLiteSession(f"session_{sample_idx}")
 
-        env = gym.make(env_id)
-        task_desc = task_description.format(
+        env = gym.make(ENV_ID)
+        task_desc = TASK_DESC.format(
             action_space_dict=env.action_space.__dict__,
             observation_space_dict=env.observation_space.__dict__,
         )
@@ -202,13 +203,14 @@ async def main():
             future_to_idx = {
                 executor.submit(
                     train_and_eval,
-                    env_id,
+                    ENV_ID,
                     N_ENVS,
                     EurekaWrapper,
                     {"is_eval": False},
                     reward_codes[i],
                     TOTAL_TIMESTEPS,
                     FEEDBACK_FREQ,
+                    f"iter{iter_idx}_sample{i}",
                 ): i
                 for i in range(SAMPLES_PER_ITER)
             }

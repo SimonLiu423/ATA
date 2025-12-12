@@ -13,6 +13,7 @@ def train_and_eval(
     reward_code: str,
     total_timesteps: int,
     feedback_freq: int,
+    tb_log_name: str,
 ):
     """
     This function returns the score (float) or -infinity if it fails.
@@ -31,9 +32,14 @@ def train_and_eval(
         train_env,
         verbose=0,
         device="cpu",
-        tensorboard_log="./tensorboard_logs",
+        tensorboard_log=f"./tensorboard_logs/{env_id}",
     )
-    model.learn(total_timesteps=total_timesteps, callback=callback, progress_bar=True)
+    model.learn(
+        total_timesteps=total_timesteps,
+        callback=callback,
+        progress_bar=True,
+        tb_log_name=tb_log_name,
+    )
 
     # Evaluate
     eval_env = gym.make(env_id)
