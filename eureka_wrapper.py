@@ -10,17 +10,13 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 
 class ReflectionCallback(BaseCallback):
-    def __init__(self, check_freq: int = 1, verbose: int = 0):
+    def __init__(self, verbose: int = 0):
         super().__init__(verbose)
         self.ai_rewards_all = []
         self.gt_rewards_all = []
         self.extras = defaultdict(list)
-        self.check_freq = check_freq
 
     def _on_step(self) -> bool:
-        if self.n_calls % self.check_freq != 0:
-            return True
-
         assert "rewards" in self.locals
         assert "infos" in self.locals
         assert "dones" in self.locals
