@@ -41,14 +41,4 @@ def train_and_eval(
         tb_log_name=tb_log_name,
     )
 
-    # Evaluate
-    eval_env = gym.make(env_id)
-    obs, _ = eval_env.reset()
-    total_reward = 0
-    terminated = False
-    while not terminated:
-        action, _ = model.predict(obs)
-        obs, reward, terminated, _, _ = eval_env.step(action)
-        total_reward += reward
-
-    return total_reward, callback.get_reflection_summary(feedback_freq)
+    return callback.get_reflection_summary(feedback_freq)

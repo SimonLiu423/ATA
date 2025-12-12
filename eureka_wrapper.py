@@ -51,6 +51,10 @@ class ReflectionCallback(BaseCallback):
 
         return True
 
+    def _on_training_end(self):
+        self.logger.record("eval/gt_mean_reward", np.mean(self.gt_rewards_all))
+        return super()._on_training_end()
+
     def get_reflection_summary(self, feedback_freq: int):
         template = """
         <{metric_name}>
@@ -63,14 +67,14 @@ class ReflectionCallback(BaseCallback):
             metric_name="Ground-Truth Rewards",
             metric_cur=self.gt_rewards_all[::feedback_freq],
             metric_cur_max=max(self.gt_rewards_all),
-            metric_cur_mean=sum(self.gt_rewards_all) / len(self.gt_rewards_all),
+            metric_cur_mean=np.mean(self.gt_rewards_all),
             metric_cur_min=min(self.gt_rewards_all),
         )
         summary += template.format(
             metric_name="Your Rewards",
             metric_cur=self.ai_rewards_all[::feedback_freq],
             metric_cur_max=max(self.ai_rewards_all),
-            metric_cur_mean=sum(self.ai_rewards_all) / len(self.ai_rewards_all),
+            metric_cur_mean=np.mean(self.ai_rewards_all),
             metric_cur_min=min(self.ai_rewards_all),
         )
         for metric_name, val in self.extras.items():
@@ -86,7 +90,7 @@ class ReflectionCallback(BaseCallback):
                 metric_cur_min=metric_cur_min,
             )
 
-        return summary
+        return np.mean(self.gt_rewards_all), summary
 
 
 class EurekaWrapper(gym.Wrapper):
