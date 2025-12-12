@@ -42,10 +42,16 @@ class ReflectionCallback(BaseCallback):
                 for key, val in infos[idx]["reward_components"].items():
                     extras_buf[key].append(val)
 
-        self.ai_rewards_all.append(np.mean(ai_rew_buf))
-        self.gt_rewards_all.append(np.mean(gt_rew_buf))
+        ai_mean_rew = np.mean(ai_rew_buf)
+        gt_mean_rew = np.mean(gt_rew_buf)
+        self.ai_rewards_all.append(ai_mean_rew)
+        self.gt_rewards_all.append(gt_mean_rew)
+        self.logger.record("extras/ai_reward", ai_mean_rew)
+        self.logger.record("extras/gt_reward", gt_mean_rew)
         for key, val in extras_buf.items():
+            mean_val = np.mean(val)
             self.extras[key].append(np.mean(val))
+            self.logger.record(f"extras/{key}", mean_val)
 
         return True
 
