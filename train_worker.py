@@ -20,7 +20,7 @@ def train_and_eval(
     train_env.env_method("edit_reward", reward_code)
 
     callback = ReflectionCallback()
-    model = PPO("MlpPolicy", train_env, verbose=0)
+    model = PPO("MlpPolicy", train_env, verbose=0, tensorboard_log="./tensorboard_logs")
     model.learn(total_timesteps=total_timesteps, callback=callback, progress_bar=True)
 
     # Evaluate
