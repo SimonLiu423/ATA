@@ -145,6 +145,18 @@ async def generate_reward(session, user_prompt, iter_idx, sample_idx):
     return reward_code, session
 
 
+def train_baseline():
+    train_and_eval(
+        env_id,
+        N_ENVS,
+        EurekaWrapper,
+        {"is_eval": True},
+        "",
+        TOTAL_TIMESTEPS,
+        FEEDBACK_FREQ,
+    )
+
+
 async def main():
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
@@ -193,6 +205,7 @@ async def main():
                     env_id,
                     N_ENVS,
                     EurekaWrapper,
+                    {"is_eval": False},
                     reward_codes[i],
                     TOTAL_TIMESTEPS,
                     FEEDBACK_FREQ,

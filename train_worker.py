@@ -9,6 +9,7 @@ def train_and_eval(
     env_id: str,
     n_envs: int,
     wrapper_class: type,
+    wrapper_kwargs: dict,
     reward_code: str,
     total_timesteps: int,
     feedback_freq: int,
@@ -16,7 +17,12 @@ def train_and_eval(
     """
     This function returns the score (float) or -infinity if it fails.
     """
-    train_env = make_vec_env(env_id, n_envs=n_envs, wrapper_class=wrapper_class)
+    train_env = make_vec_env(
+        env_id,
+        n_envs=n_envs,
+        wrapper_class=wrapper_class,
+        wrapper_kwargs=wrapper_kwargs,
+    )
     train_env.env_method("edit_reward", reward_code)
 
     callback = ReflectionCallback()

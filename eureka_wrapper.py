@@ -90,11 +90,16 @@ class ReflectionCallback(BaseCallback):
 
 
 class EurekaWrapper(gym.Wrapper):
-    def __init__(self, env):
+    def __init__(self, env, is_eval=False):
         super().__init__(env)
+        self.is_eval = is_eval
 
     def step(self, action):
         obs, gt_reward, terminated, truncated, info = self.env.step(action)
+        if self.is_eval:
+            info["reward_components"] = {}
+            info["gt_reward"] = gt_reward
+            return obs, gt_reward, terminated, truncated, info
 
         ai_reward, components = self.compute_reward(obs, action)
 
