@@ -4,6 +4,13 @@ import inspect
 import logging
 import os
 
+# STRICTLY limit threads before importing torch/numpy
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import gymnasium as gym
 import mlflow
 from agents import Agent, ModelSettings, Runner, Session, SQLiteSession, function_tool
