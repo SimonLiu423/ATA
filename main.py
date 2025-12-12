@@ -125,7 +125,12 @@ def write_str_to_file(string: str, file_path: str):
 
 async def generate_reward(session, user_prompt, iter_idx, sample_idx):
     reward_generator = RewardGenerator()
-    reward_code = await reward_generator.generate(session, user_prompt)
+    try:
+        reward_code = await reward_generator.generate(session, user_prompt)
+    except Exception as e:
+        logger.info(f"Failed to generate reward code: {e}")
+        return "", session
+
     write_str_to_file(
         reward_code, f"{OUTPUT_DIR}/iter{iter_idx}_response{sample_idx}.txt"
     )
