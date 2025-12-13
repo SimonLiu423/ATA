@@ -9,6 +9,7 @@ from eureka_wrapper import ReflectionCallback
 
 def train_and_eval(
     env_id: str,
+    env_kwargs: dict,
     n_envs: int,
     wrapper_class: type,
     wrapper_kwargs: dict,
@@ -22,13 +23,14 @@ def train_and_eval(
     """
     train_env = make_vec_env(
         env_id,
+        env_kwargs=env_kwargs,
         n_envs=n_envs,
         wrapper_class=wrapper_class,
         wrapper_kwargs=wrapper_kwargs,
     )
     train_env.env_method("edit_reward", reward_code)
 
-    eval_env = gym.make(env_id)
+    eval_env = gym.make(env_id, env_kwargs)
 
     reflection_callback = ReflectionCallback()
     eval_callback = EvalCallback(

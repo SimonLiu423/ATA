@@ -54,33 +54,27 @@ TOTAL_TIMESTEPS = 1_000_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
 # --------------------
 
-ENV_ID = "LunarLander-v3"
+ENV_ID = "BipedalWalker-v3"
+ENV_KWARGS = {"hardcore": True}
 TASK_DESC = """
 ## Task
-Your task is to control the lander to land on the landing pad smoothly without crashing.
+Your task is to train a 2D two-legged robot to coordinate its limbs and successfully walk from the left side of the screen to the right side without falling over
 
 ## Action Space
 __dict__: {action_space_dict}
 
-There are four discrete actions available:
-- 0: do nothing
-- 1: fire left orientation engine
-- 2: fire main engine
-- 3: fire right orientation engine
+Actions are motor speed values in the [-1, 1] range for each of the 4 joints at both hips and knees.
 
 ## Observation Space
 __dict__: {observation_space_dict}
 
-The state is an 8-dimensional vector: the coordinates of the lander in `x` & `y`, its linear velocities in `x` & `y`, its angle, its angular velocity, and two booleans that represent whether each leg is in contact with the ground or not.
+State consists of hull angle speed, angular velocity, horizontal speed, vertical speed, position of joints and joints angular speed, legs contact with ground, and 10 lidar rangefinder measurements. There are no coordinates in the state vector.
 
 ## Starting State
-The lander starts at the top center of the viewport with a random initial force applied to its center of mass.
+The walker starts standing at the left end of the terrain with the hull horizontal, and both legs in the same position with a slight knee angle.
 
 ## Episode Termination
-The episode finishes if:
-1. the lander crashes (the lander body gets in contact with the moon);
-2. the lander gets outside of the viewport (x coordinate is greater than 1);
-3. the lander is not awake. From the Box2D docs, a body which is not awake is a body which doesn’t move and doesn’t collide with any other body:
+The episode will terminate if the hull gets in contact with the ground or if the walker exceeds the right end of the terrain length.
 """
 
 
@@ -158,6 +152,7 @@ async def generate_reward(session, user_prompt, iter_idx, sample_idx):
 def train_baseline():
     train_and_eval(
         ENV_ID,
+        ENV_KWARGS,
         N_ENVS,
         EurekaWrapper,
         {"is_eval": True},
@@ -183,7 +178,7 @@ async def train_eureka():
     # Create multiple Envs and generate reward functions
     for sample_idx in range(SAMPLES_PER_ITER):
         session = SQLiteSession(f"session_{sample_idx}")
-        env = gym.make(ENV_ID)
+        env = gym.make(ENV_ID, ENV_KWARGS)
         task_desc = TASK_DESC.format(
             action_space_dict=env.action_space.__dict__,
             observation_space_dict=env.observation_space.__dict__,
@@ -218,6 +213,7 @@ async def train_eureka():
                 executor.submit(
                     train_and_eval,
                     ENV_ID,
+                    ENV_KWARGS,
                     N_ENVS,
                     EurekaWrapper,
                     {"is_eval": False},
