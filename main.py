@@ -168,10 +168,7 @@ def train_baseline():
     )
 
 
-async def main():
-    # Train baseline
-    train_baseline()
-
+async def train_eureka():
     # Eureka
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
@@ -294,6 +291,14 @@ async def main():
     tqdm.write(
         f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
     )
+
+
+async def main():
+    # Train baseline
+    train_baseline()
+
+    # Train Eureka
+    await train_eureka()
 
 
 if __name__ == "__main__":
