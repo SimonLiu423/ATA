@@ -178,7 +178,7 @@ async def train_eureka():
     # Create multiple Envs and generate reward functions
     for sample_idx in range(SAMPLES_PER_ITER):
         session = SQLiteSession(f"session_{sample_idx}")
-        env = gym.make(ENV_ID, ENV_KWARGS)
+        env = gym.make(ENV_ID, **ENV_KWARGS)
         task_desc = TASK_DESC.format(
             action_space_dict=env.action_space.__dict__,
             observation_space_dict=env.observation_space.__dict__,

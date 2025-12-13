@@ -30,7 +30,7 @@ def train_and_eval(
     )
     train_env.env_method("edit_reward", reward_code)
 
-    eval_env = gym.make(env_id, env_kwargs)
+    eval_env = gym.make(env_id, **env_kwargs)
 
     reflection_callback = ReflectionCallback()
     eval_callback = EvalCallback(
