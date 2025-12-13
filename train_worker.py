@@ -37,6 +37,7 @@ def train_and_eval(
         eval_env=eval_env,
         eval_freq=total_timesteps // 100,
         best_model_save_path=f"./best_models/{tb_log_name}/",
+        log_path=f"./eval_logs/{tb_log_name}/",
     )
     callback_list = CallbackList([reflection_callback, eval_callback])
     model = PPO(
