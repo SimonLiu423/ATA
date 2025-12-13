@@ -66,12 +66,12 @@ def train_and_eval(
     """.format(
         timesteps=eval_callback.evaluations_timesteps,
         episode_length=[
-            "{:.2f}".format(x)
-            for x in np.mean(eval_callback.evaluations_length, axis=0)
+            "{:.2f}k".format(x / 1000)
+            for x in np.mean(eval_callback.evaluations_length, axis=1)
         ],
         scores=[
             "{:.2f}".format(x)
-            for x in np.mean(eval_callback.evaluations_results, axis=0)
+            for x in np.mean(eval_callback.evaluations_results, axis=1)
         ],
         max_score=np.max(eval_callback.evaluations_results),
         mean_score=np.mean(eval_callback.evaluations_results),
