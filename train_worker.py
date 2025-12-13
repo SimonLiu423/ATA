@@ -59,9 +59,9 @@ def train_and_eval(
     eval_feedback = """
     <evaluation>
     Triggered at: {timesteps} (timesteps)
-    Episode length: {episode_length}
-    Scores: {scores}
-    Max: {max_score}, Mean: {mean_score}, Min: {min_score}
+    Episode length: {episode_length: .2f}
+    Scores: {scores: .2f}
+    Max: {max_score: .2f}, Mean: {mean_score: .2f}, Min: {min_score: .2f}
     </evaluation>
     """.format(
         timesteps=eval_callback.evaluations_timesteps,

@@ -65,7 +65,9 @@ class ReflectionCallback(BaseCallback):
         summary = ""
         summary += template.format(
             metric_name="Rewards during training",
-            metric_cur=self.ai_rewards_all[::feedback_freq],
+            metric_cur=[
+                "{:.2f}".format(x) for x in self.ai_rewards_all[::feedback_freq]
+            ],
             metric_cur_max=max(self.ai_rewards_all),
             metric_cur_mean=np.mean(self.ai_rewards_all),
             metric_cur_min=min(self.ai_rewards_all),
