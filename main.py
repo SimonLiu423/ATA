@@ -4,6 +4,11 @@ import inspect
 import logging
 import os
 
+from tqdm import tqdm
+
+# Import tqdm
+from tqdm.asyncio import tqdm as async_tqdm
+
 # STRICTLY limit threads before importing torch/numpy
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -27,7 +32,6 @@ logger.setLevel(logging.INFO)
 
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
 mlflow.set_experiment("eureka-experiment")
-
 mlflow.openai.autolog()
 
 # --- CONFIGURATION ---
@@ -135,7 +139,7 @@ async def generate_reward(session, user_prompt, iter_idx, sample_idx):
     try:
         reward_code = await reward_generator.generate(session, user_prompt)
     except Exception as e:
-        logger.info(f"Failed to generate reward code: {e}")
+        tqdm.write(f"Failed to generate reward code: {e}")
         return "", session
 
     write_str_to_file(
@@ -169,34 +173,37 @@ async def main():
     best_iter_idx = None
     best_score = -float("inf")
 
-    tasks = []
+    # --- INITIAL GENERATION ---
+    tqdm.write("--- Generating Initial Population ---")
 
+    tasks = []
     # Create multiple Envs and generate reward functions
     for sample_idx in range(SAMPLES_PER_ITER):
         session = SQLiteSession(f"session_{sample_idx}")
-
         env = gym.make(ENV_ID)
         task_desc = TASK_DESC.format(
             action_space_dict=env.action_space.__dict__,
             observation_space_dict=env.observation_space.__dict__,
         )
-
         user_prompt = prompts.initial_user.prompt.format(
             task_obs_code_string=inspect.getsource(env.unwrapped.step),
             task_description=task_desc,
         )
         env.close()
-
         task = generate_reward(session, user_prompt, 0, sample_idx)
         tasks.append(task)
 
-    results = await asyncio.gather(*tasks)
+    # Wrap gather with async_tqdm
+    results = await async_tqdm.gather(*tasks, desc="Initial Generation")
     reward_codes = [result[0] for result in results]
     sessions = [result[1] for result in results]
 
-    # Eureka loop
-    for iter_idx in range(ITERATIONS):
-        logger.info(f"\n--- Iteration {iter_idx} ---")
+    # --- EUREKA LOOP ---
+    # Outer Loop: Evolution Iterations (position=0 keeps it at the bottom)
+    outer_bar = tqdm(range(ITERATIONS), desc="Evolution Iterations", position=0)
+
+    for iter_idx in outer_bar:
+        tqdm.write(f"\n--- Iteration {iter_idx} ---")
 
         candidates = []
 
@@ -219,14 +226,21 @@ async def main():
                 for i in range(SAMPLES_PER_ITER)
             }
 
-            for future in concurrent.futures.as_completed(future_to_idx):
+            # Inner Loop: Training Jobs (leave=False clears it after this generation is done)
+            for future in tqdm(
+                concurrent.futures.as_completed(future_to_idx),
+                total=SAMPLES_PER_ITER,
+                desc=f"Training Gen {iter_idx}",
+                position=1,
+                leave=False,
+            ):
                 idx = future_to_idx[future]
                 try:
                     score, reflection = future.result()
-                    logger.info(f"Finished {idx}: Score {score}")
+                    tqdm.write(f"  > Finished Sample {idx}: Score {score:.2f}")
                     candidates.append((idx, score, reflection))
                 except Exception as e:
-                    logger.warning(f"Failed {idx}: {e}")
+                    tqdm.write(f"  > Failed Sample {idx}: {e}")
                     write_str_to_file(
                         str(e), f"{OUTPUT_DIR}/iter{iter_idx}_failed{idx}.txt"
                     )
@@ -237,40 +251,43 @@ async def main():
             candidates.sort(key=lambda x: x[1], reverse=True)
             winner_idx, winner_score, winner_reflection = candidates[0]
 
-            logger.info(
-                f"Best of Iteration {iter_idx}: #{winner_idx} with score {winner_score}"
+            tqdm.write(
+                f"Best of Iteration {iter_idx}: #{winner_idx} with score {winner_score:.2f}"
             )
+
             if winner_score > best_score:
-                logger.info(f"New best score: {winner_score}")
+                tqdm.write(f"New Global Best Score: {winner_score:.2f}")
                 best_score = winner_score
                 best_iter_idx = (iter_idx, winner_idx)
 
             if iter_idx == ITERATIONS - 1:
                 break
 
-            # Generate new reward code
+            # Mutation Step
             winner_session_items = await sessions[winner_idx].get_items()
             tasks = []
             for i, session in enumerate(sessions):
-                # Replace other sessions with winner's session
                 if i != winner_idx:
                     await session.clear_session()
                     await session.add_items(winner_session_items)
 
-                # Generate new reward code
                 prompt = prompts.policy_feedback.prompt.format(
                     feedback_timestep_freq=FEEDBACK_FREQ,
                     feedback=winner_reflection,
                 )
                 task = generate_reward(session, prompt, iter_idx + 1, i)
                 tasks.append(task)
-            results = await asyncio.gather(*tasks)
+
+            # Using async_tqdm for the LLM generation phase
+            results = await async_tqdm.gather(
+                *tasks, desc=f"Mutating Gen {iter_idx}", leave=False
+            )
             reward_codes = [result[0] for result in results]
             sessions = [result[1] for result in results]
 
-        logger.info(
-            f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
-        )
+    tqdm.write(
+        f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
+    )
 
 
 if __name__ == "__main__":
