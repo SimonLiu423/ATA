@@ -1,5 +1,6 @@
 import gymnasium as gym
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CallbackList, EvalCallback
 from stable_baselines3.common.env_util import make_vec_env
 
 from eureka_wrapper import ReflectionCallback
@@ -26,7 +27,15 @@ def train_and_eval(
     )
     train_env.env_method("edit_reward", reward_code)
 
-    callback = ReflectionCallback()
+    eval_env = gym.make(env_id)
+
+    reflection_callback = ReflectionCallback()
+    eval_callback = EvalCallback(
+        eval_env=eval_env,
+        eval_freq=total_timesteps // 10,
+        log_path=f"./best_models/{tb_log_name}",
+    )
+    callback_list = CallbackList([reflection_callback, eval_callback])
     model = PPO(
         "MlpPolicy",
         train_env,
@@ -36,9 +45,9 @@ def train_and_eval(
     )
     model.learn(
         total_timesteps=total_timesteps,
-        callback=callback,
+        callback=callback_list,
         progress_bar=True,
         tb_log_name=tb_log_name,
     )
 
-    return callback.get_reflection_summary(feedback_freq)
+    return reflection_callback.get_reflection_summary(feedback_freq)

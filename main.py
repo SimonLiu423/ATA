@@ -159,10 +159,14 @@ def train_baseline():
 
 
 async def main():
+    # Train baseline
+    train_baseline()
+
+    # Eureka
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    best_code = None
+    best_iter_idx = None
     best_score = -float("inf")
 
     tasks = []
@@ -239,8 +243,12 @@ async def main():
             if winner_score > best_score:
                 logger.info(f"New best score: {winner_score}")
                 best_score = winner_score
-                best_code = reward_codes[winner_idx]
+                best_iter_idx = (iter_idx, winner_idx)
 
+            if iter_idx == ITERATIONS - 1:
+                break
+
+            # Generate new reward code
             winner_session_items = await sessions[winner_idx].get_items()
             tasks = []
             for i, session in enumerate(sessions):
@@ -259,6 +267,10 @@ async def main():
             results = await asyncio.gather(*tasks)
             reward_codes = [result[0] for result in results]
             sessions = [result[1] for result in results]
+
+        logger.info(
+            f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
+        )
 
 
 if __name__ == "__main__":
