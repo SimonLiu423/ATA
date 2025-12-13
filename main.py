@@ -34,6 +34,7 @@ set_trace_processors([])
 import mlflow  # noqa: E402
 
 litellm.suppress_debug_info = True
+litellm.DEFAULT_REQUEST_TIMEOUT = 90
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -105,11 +106,7 @@ class RewardGenerator:
 
     async def generate(self, session: Session, prompt: str) -> str:
         # TODO: experiment with 1 agent generating 16 reward functions
-        await Runner.run(
-            self.agent,
-            prompt,
-            session=session,
-        )
+        await Runner.run(self.agent, prompt, session=session, max_turns=5)
         if self.new_code:
             self.new_code = False
             return self.code
