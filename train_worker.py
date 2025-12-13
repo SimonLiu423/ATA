@@ -59,14 +59,20 @@ def train_and_eval(
     eval_feedback = """
     <evaluation>
     Triggered at: {timesteps} (timesteps)
-    Episode length: {episode_length: .2f}
-    Scores: {scores: .2f}
+    Episode length: {episode_length}
+    Scores: {scores}
     Max: {max_score: .2f}, Mean: {mean_score: .2f}, Min: {min_score: .2f}
     </evaluation>
     """.format(
         timesteps=eval_callback.evaluations_timesteps,
-        episode_length=np.mean(eval_callback.evaluations_length, axis=0),
-        scores=np.mean(eval_callback.evaluations_results, axis=0),
+        episode_length=[
+            "{:.2f}".format(x)
+            for x in np.mean(eval_callback.evaluations_lengths, axis=0)
+        ],
+        scores=[
+            "{:.2f}".format(x)
+            for x in np.mean(eval_callback.evaluations_results, axis=0)
+        ],
         max_score=np.max(eval_callback.evaluations_results),
         mean_score=np.mean(eval_callback.evaluations_results),
         min_score=np.min(eval_callback.evaluations_results),
