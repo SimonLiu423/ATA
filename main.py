@@ -9,6 +9,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 import gymnasium as gym
+import litellm
 import mlflow
 from agents import Agent, ModelSettings, Runner, Session, SQLiteSession, function_tool
 from agents.extensions.models.litellm_model import LitellmModel
@@ -17,6 +18,8 @@ from dotenv import load_dotenv
 import prompts
 from eureka_wrapper import EurekaWrapper
 from train_worker import train_and_eval
+
+litellm.suppress_debug_info = True
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
