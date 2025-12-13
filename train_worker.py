@@ -50,4 +50,6 @@ def train_and_eval(
         tb_log_name=tb_log_name,
     )
 
+    train_env.close()
+
     return reflection_callback.get_reflection_summary(feedback_freq)
