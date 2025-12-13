@@ -79,6 +79,6 @@ def train_and_eval(
     )
 
     return (
-        eval_callback.best_mean_reward,
+        np.mean(eval_callback.evaluations_results),
         reflection_callback.get_reflection_summary(feedback_freq) + eval_feedback,
     )
