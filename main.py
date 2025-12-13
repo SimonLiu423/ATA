@@ -2,6 +2,7 @@ import asyncio
 import concurrent
 import inspect
 import logging
+import multiprocessing
 import os
 
 from tqdm import tqdm
@@ -205,9 +206,11 @@ async def train_eureka():
 
         candidates = []
 
+        ctx = multiprocessing.get_context("spawn")
+
         # --- PARALLEL EXECUTION BLOCK ---
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=MAX_PARALLEL_JOBS
+            max_workers=MAX_PARALLEL_JOBS, mp_context=ctx
         ) as executor:
             future_to_idx = {
                 executor.submit(
