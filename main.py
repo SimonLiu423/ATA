@@ -15,14 +15,23 @@ os.environ["MKL_NUM_THREADS"] = "1"
 
 import gymnasium as gym
 import litellm
-import mlflow
-from agents import Agent, ModelSettings, Runner, Session, SQLiteSession, function_tool
+from agents import (
+    Agent,
+    Runner,
+    Session,
+    SQLiteSession,
+    function_tool,
+    set_trace_processors,
+)
 from agents.extensions.models.litellm_model import LitellmModel
 from dotenv import load_dotenv
 
 import prompts
 from eureka_wrapper import EurekaWrapper
 from train_worker import train_and_eval
+
+set_trace_processors([])
+import mlflow  # noqa: E402
 
 litellm.suppress_debug_info = True
 
