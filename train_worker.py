@@ -67,7 +67,7 @@ def train_and_eval(
         timesteps=eval_callback.evaluations_timesteps,
         episode_length=[
             "{:.2f}".format(x)
-            for x in np.mean(eval_callback.evaluations_lengths, axis=0)
+            for x in np.mean(eval_callback.evaluations_length, axis=0)
         ],
         scores=[
             "{:.2f}".format(x)
