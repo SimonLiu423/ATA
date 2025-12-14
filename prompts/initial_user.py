@@ -4,8 +4,7 @@ The Python environment is
 {task_obs_code_string}
 </code>
 
-Write a reward function for the following task:
 <task>
-{task_description}.
+{task_description}
 </task>
 """

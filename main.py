@@ -1,13 +1,16 @@
 import asyncio
 import concurrent
 import inspect
+import json
 import logging
 import multiprocessing
 import os
-
-from tqdm import tqdm
+from copy import deepcopy
+from typing import Dict, List
 
 # Import tqdm
+from stable_baselines3 import A2C, DDPG, DQN, PPO, SAC, TD3
+from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 
 # STRICTLY limit threads before importing torch/numpy
@@ -41,7 +44,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-mlflow.set_tracking_uri("http://127.0.0.1:5000")
+mlflow.set_tracking_uri("http://127.0.0.1:5001")
 mlflow.set_experiment("eureka-experiment")
 mlflow.openai.autolog()
 
@@ -53,10 +56,12 @@ OUTPUT_DIR = "eureka_outputs"
 MAX_PARALLEL_JOBS = 16
 TOTAL_TIMESTEPS = 1_000_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
+RETRY_COUNT = 3
 # --------------------
 
 ENV_ID = "BipedalWalker-v3"
 ENV_KWARGS = {"hardcore": True}
+DEVICE = "cpu"
 TASK_DESC = """
 ## Task
 Your task is to train a 2D two-legged robot to coordinate its limbs and successfully walk from the left side of the screen to the right side without falling over
@@ -82,52 +87,226 @@ The episode will terminate if the hull gets in contact with the ground or if the
 load_dotenv()
 api_key = os.getenv("OPENROUTER_API_KEY") or ""
 
+RL_ALGORITHMS = {
+    "A2C": A2C,
+    "DDPG": DDPG,
+    "DQN": DQN,
+    "PPO": PPO,
+    "SAC": SAC,
+    "TD3": TD3,
+}
 
-class RewardGenerator:
+
+class TrainingConfig:
     def __init__(self):
+        self.algorithm = None
+        self.hyperparameters = None
+        self.reward_code = None
+        self.new_hp = False
+        self.new_code = False
+        self.can_train = True
+
+    def get_tools(self):
+        @function_tool
+        def edit_reward(code_str: str) -> dict:
+            """
+            Edit the environment's gym.wrapper `compute_reward` method with the provided code dynamically.
+            the code is executed with `exec` and the wrapper's `compute_reward` method will be replaced with the
+            edited version.
+
+            args:
+                    code_str (str): a string containing valid python code defining a function
+                    `compute_reward(self, obs, action)`.
+
+            returns:
+                    dict: success status or error message.
+            """
+            self.reward_code = code_str
+            self.new_code = True
+            return {"success": True}
+
+        @function_tool
+        def select_algorithm(algorithm: str) -> dict:
+            """
+            Select an algorithm to use for training the agent.
+            Available algorithms: A2C, DDPG, DQN, PPO, SAC, TD3.
+
+            args:
+                    algorithm (str): the name of the algorithm to use.
+
+            returns:
+                    dict: success status or error message.
+            """
+            if algorithm not in RL_ALGORITHMS.keys():
+                return {
+                    "success": False,
+                    "error": f"invalid algorithm, available algorithms: {RL_ALGORITHMS.keys()}",
+                }
+            self.algorithm = RL_ALGORITHMS[algorithm]
+            return {"success": True}
+
+        @function_tool
+        def suggest_hyperparameters(hyperparameters_json: str) -> dict:
+            """
+            Suggest a set of hyperparameters for the selected algorithm.
+            The suggested hyperparameters will be used to train the RL agent.
+
+            Args:
+                    hyperparameters_json (str): A json string of hyperparameters.
+                    The keys are the hyperparameter names and the values are the
+                    corresponding values. For example, {"learning_rate": 0.1, "batch_size": 32}.
+            Returns:
+                    dict: Success status or error message.
+            """
+            hyperparameters = json.loads(hyperparameters_json)
+            sig = inspect.signature(self.algorithm)
+            try:
+                sig.bind(env=ENV_ID, device=DEVICE, **hyperparameters)
+                self.hyperparameters = hyperparameters
+                self.new_hp = True
+                return {"success": True}
+            except TypeError as e:
+                return {"success": False, "error": str(e)}
+
+        return {
+            "algorithm": select_algorithm,
+            "reward": edit_reward,
+            "hyperparameters": suggest_hyperparameters,
+        }
+
+
+class AgentTrainerAgent:
+    def __init__(
+        self,
+        train_config: TrainingConfig,
+        session_id: str,
+        max_turns: int = 10,
+    ):
         self.agent = Agent(
-            name="Eureka",
-            instructions=prompts.initial_system.prompt,
+            name="AgentTrainer",
+            instructions=prompts.system_role.prompt,
             model=LitellmModel(
                 base_url="https://openrouter.ai/api/v1",
                 model="openrouter/kwaipilot/kat-coder-pro:free",
                 api_key=api_key,
             ),
-            tools=[self.get_tool()],
-            # model_settings=ModelSettings(include_usage=True),
+            tools=list(train_config.get_tools().values()),
         )
-        self.code = None
-        self.new_code = False
+        self.max_turns = max_turns
+        self.train_config = train_config
+        self.session = SQLiteSession(session_id)
 
-    async def generate(self, session: Session, prompt: str) -> str:
+    async def clear_history(self):
+        await self.session.clear_session()
+
+    async def load_history(self, history: List[Dict]) -> None:
+        await self.session.add_items(history)
+
+    async def load_background_context(self):
+        env = gym.make(ENV_ID, **ENV_KWARGS)
+        task_desc = TASK_DESC.format(
+            action_space_dict=env.action_space.__dict__,
+            observation_space_dict=env.observation_space.__dict__,
+        )
+        context = prompts.initial_user.prompt.format(
+            task_obs_code_string=inspect.getsource(env.unwrapped.step),
+            task_description=task_desc,
+        )
+        env.close()
+        item = {"role": "user", "content": context}
+        await self.session.add_items([item])
+
+    async def select_algorithm(self):
+        # self.agent.tools = [self.train_config.get_tools()["algorithm"]]
+        await Runner.run(
+            self.agent,
+            prompts.select_algorithm.prompt,
+            session=self.session,
+            max_turns=self.max_turns,
+        )
+
+        if self.train_config.algorithm is None:
+            await Runner.run(
+                self.agent,
+                "Please use the provided tool to select an algorithm.",
+                session=self.session,
+                max_turns=self.max_turns,
+            )
+        if self.train_config.algorithm is None:
+            raise Exception("No algorithm selected.")
+
+    async def edit_reward(self, prompt: str, save_path: str):
+        # self.agent.tools = [self.train_config.get_tools()["reward"]]
         # TODO: experiment with 1 agent generating 16 reward functions
-        await Runner.run(self.agent, prompt, session=session, max_turns=5)
-        if self.new_code:
-            self.new_code = False
-            return self.code
+        await Runner.run(
+            self.agent, prompt, session=self.session, max_turns=self.max_turns
+        )
+        if not self.train_config.new_code:
+            await Runner.run(
+                self.agent,
+                "Please use the provided tool to provide a new reward function.",
+                session=self.session,
+                max_turns=self.max_turns,
+            )
+
+        if self.train_config.new_code:
+            self.train_config.new_code = False
+            write_str_to_file(
+                self.train_config.reward_code,
+                save_path,
+            )
         else:
-            raise (Exception("No new reward function generated"))
+            raise Exception("No new code generated.")
 
-    def get_tool(self):
-        @function_tool
-        def edit_reward(code_str: str) -> dict:
-            """
-            Edit the environment's gym.Wrapper `compute_reward` method with the provided code dynamically.
-            The code is executed with `exec` and the wrapper's `compute_reward` method will be replaced with the
-            edited version.
+    async def suggest_hyperparameters(self):
+        # self.agent.tools = [self.train_config.get_tools()["hyperparameters"]]
+        await Runner.run(
+            self.agent,
+            prompts.suggest_hps.prompt.format(
+                signature=inspect.signature(self.train_config.algorithm)
+            ),
+            session=self.session,
+            max_turns=self.max_turns,
+        )
 
-            Args:
-                    code_str (str): A string containing valid Python code defining a function
-                    `compute_reward(self, obs, action)`.
+        if not self.train_config.new_hp:
+            await Runner.run(
+                self.agent,
+                "Please use the provided tool to suggest hyperparameters.",
+                session=self.session,
+                max_turns=self.max_turns,
+            )
 
-            Returns:
-                    dict: Success status or error message.
-            """
-            self.code = code_str
-            self.new_code = True
-            return {"success": True}
+        if self.train_config.new_hp:
+            self.train_config.new_hp = False
+        else:
+            raise Exception("No new hyperparameters generated.")
 
-        return edit_reward
+    async def add_feedback(self, feedback: str):
+        await self.session.add_items([{"role": "user", "content": feedback}])
+
+    async def generate_init_config(self, reward_save_path: str):
+        try:
+            await self.edit_reward(
+                prompt=prompts.write_init_reward.prompt, save_path=reward_save_path
+            )
+            await self.suggest_hyperparameters()
+        except Exception as e:
+            self.train_config.can_train = False
+
+    async def generate_new_config(self, reflection: str, reward_save_path: str):
+        feedback = prompts.policy_feedback.prompt.format(
+            feedback_timestep_freq=FEEDBACK_FREQ,
+            reflection=reflection,
+        )
+        await self.add_feedback(feedback)
+        try:
+            await self.edit_reward(
+                prompt=prompts.modify_reward.prompt, save_path=reward_save_path
+            )
+            await self.suggest_hyperparameters()
+        except Exception as e:
+            self.train_config.can_train = False
 
 
 def write_str_to_file(string: str, file_path: str):
@@ -135,25 +314,12 @@ def write_str_to_file(string: str, file_path: str):
         f.write(string)
 
 
-async def generate_reward(session, user_prompt, iter_idx, sample_idx):
-    reward_generator = RewardGenerator()
-    try:
-        reward_code = await reward_generator.generate(session, user_prompt)
-    except Exception as e:
-        tqdm.write(f"Failed to generate reward code: {e}")
-        return "", session
-
-    write_str_to_file(
-        reward_code, f"{OUTPUT_DIR}/iter{iter_idx}_response{sample_idx}.txt"
-    )
-
-    return reward_code, session
-
-
 def train_baseline():
     train_and_eval(
         ENV_ID,
         ENV_KWARGS,
+        PPO,
+        {},
         N_ENVS,
         EurekaWrapper,
         {"is_eval": True},
@@ -164,7 +330,7 @@ def train_baseline():
     )
 
 
-async def train_eureka():
+async def train_eureka(main_agent: AgentTrainerAgent):
     # Eureka
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
@@ -175,27 +341,23 @@ async def train_eureka():
     # --- INITIAL GENERATION ---
     tqdm.write("--- Generating Initial Population ---")
 
+    conversation_history = await main_agent.session.get_items()
+    agents: List[AgentTrainerAgent] = []
     tasks = []
     # Create multiple Envs and generate reward functions
     for sample_idx in range(SAMPLES_PER_ITER):
-        session = SQLiteSession(f"session_{sample_idx}")
-        env = gym.make(ENV_ID, **ENV_KWARGS)
-        task_desc = TASK_DESC.format(
-            action_space_dict=env.action_space.__dict__,
-            observation_space_dict=env.observation_space.__dict__,
+        config = deepcopy(main_agent.train_config)
+        agent = AgentTrainerAgent(config, f"session_{sample_idx}")
+        agents.append(agent)
+
+        await agent.load_history(conversation_history)
+        task = agent.generate_init_config(
+            reward_save_path=f"{OUTPUT_DIR}/iter{0}_response{sample_idx}.txt"
         )
-        user_prompt = prompts.initial_user.prompt.format(
-            task_obs_code_string=inspect.getsource(env.unwrapped.step),
-            task_description=task_desc,
-        )
-        env.close()
-        task = generate_reward(session, user_prompt, 0, sample_idx)
         tasks.append(task)
 
     # Wrap gather with async_tqdm
-    results = await async_tqdm.gather(*tasks, desc="Initial Generation")
-    reward_codes = [result[0] for result in results]
-    sessions = [result[1] for result in results]
+    await async_tqdm.gather(*tasks, desc="Initial Generation")
 
     # --- EUREKA LOOP ---
     # Outer Loop: Evolution Iterations (position=0 keeps it at the bottom)
@@ -217,14 +379,16 @@ async def train_eureka():
                     train_and_eval,
                     ENV_ID,
                     ENV_KWARGS,
+                    agents[i].train_config.algorithm,
+                    agents[i].train_config.hyperparameters,
                     N_ENVS,
                     EurekaWrapper,
                     {"is_eval": False},
-                    reward_codes[i],
+                    agents[i].train_config.reward_code,
                     TOTAL_TIMESTEPS,
                     FEEDBACK_FREQ,
                     f"iter{iter_idx}_sample{i}",
-                ): i
+                ): i if agents[i].train_config.can_train else None
                 for i in range(SAMPLES_PER_ITER)
             }
 
@@ -266,26 +430,24 @@ async def train_eureka():
                 break
 
             # Mutation Step
-            winner_session_items = await sessions[winner_idx].get_items()
+            winner_session_history = await agents[winner_idx].session.get_items()
             tasks = []
-            for i, session in enumerate(sessions):
+            for i, agent in enumerate(agents):
                 if i != winner_idx:
-                    await session.clear_session()
-                    await session.add_items(winner_session_items)
+                    await agent.clear_history()
+                    await agent.load_history(winner_session_history)
 
-                prompt = prompts.policy_feedback.prompt.format(
-                    feedback_timestep_freq=FEEDBACK_FREQ,
-                    feedback=winner_reflection,
+                agent.train_config.can_train = True
+                task = agent.generate_new_config(
+                    reflection=winner_reflection,
+                    reward_save_path=f"{OUTPUT_DIR}/iter{iter_idx + 1}_response{i}.txt",
                 )
-                task = generate_reward(session, prompt, iter_idx + 1, i)
                 tasks.append(task)
 
             # Using async_tqdm for the LLM generation phase
-            results = await async_tqdm.gather(
+            await async_tqdm.gather(
                 *tasks, desc=f"Mutating Gen {iter_idx}", leave=False
             )
-            reward_codes = [result[0] for result in results]
-            sessions = [result[1] for result in results]
 
     tqdm.write(
         f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
@@ -293,11 +455,35 @@ async def train_eureka():
 
 
 async def main():
-    # Train baseline
-    train_baseline()
+    # # Train baseline
+    # train_baseline()
+
+    train_config = TrainingConfig()
+    agent = AgentTrainerAgent(train_config, "main_session")
+
+    await agent.load_background_context()
+    await agent.select_algorithm()
 
     # Train Eureka
-    await train_eureka()
+    await train_eureka(agent)
+
+    # Load models
+    # models_path = [
+    #     # os.path.join("./best_models", "baseline", "best_model.zip"),
+    #     os.path.join("./best_models", "iter4_sample12", "best_model.zip"),
+    # ]
+
+    # env = gym.make(ENV_ID, render_mode="human", **ENV_KWARGS)
+
+    # for model_path in models_path:
+    #     model = PPO.load(model_path)
+    #     obs, _ = env.reset()
+    #     for _ in range(1000):
+    #         action, _states = model.predict(obs, deterministic=True)
+    #         obs, rewards, terminated, truncated, info = env.step(action)
+    #         if terminated or truncated:
+    #             obs, _ = env.reset()
+    #     env.close()
 
 
 if __name__ == "__main__":

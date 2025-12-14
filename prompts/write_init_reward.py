@@ -1,6 +1,5 @@
 prompt = """
-You are a reward engineer trying to write reward functions to solve reinforcement learning tasks as effectively as possible.
-Your goal is to write a reward function for the environment that will help the agent learn the task described in text.
+Write a reward function for the environment that will help the agent learn the task described in text.
 
 Your reward function should use useful variables from the environment as inputs. As an example,
 the reward function signature can be: 

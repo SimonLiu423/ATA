@@ -1,6 +1,6 @@
 import gymnasium as gym
 import numpy as np
-from stable_baselines3 import PPO
+from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.callbacks import CallbackList, EvalCallback
 from stable_baselines3.common.env_util import make_vec_env
 
@@ -10,6 +10,8 @@ from eureka_wrapper import ReflectionCallback
 def train_and_eval(
     env_id: str,
     env_kwargs: dict,
+    algorithm: BaseAlgorithm,
+    hyperparameters: dict,
     n_envs: int,
     wrapper_class: type,
     wrapper_kwargs: dict,
@@ -40,10 +42,9 @@ def train_and_eval(
         log_path=f"./eval_logs/{tb_log_name}/",
     )
     callback_list = CallbackList([reflection_callback, eval_callback])
-    model = PPO(
-        "MlpPolicy",
-        train_env,
-        verbose=0,
+    model = algorithm(
+        env=train_env,
+        **hyperparameters,
         device="cpu",
         tensorboard_log=f"./tensorboard_logs/{env_id}",
     )
