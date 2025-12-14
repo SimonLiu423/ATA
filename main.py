@@ -393,8 +393,9 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     TOTAL_TIMESTEPS,
                     FEEDBACK_FREQ,
                     f"iter{iter_idx}_sample{i}",
-                ): i if agents[i].train_config.can_train else None
+                ): i
                 for i in range(SAMPLES_PER_ITER)
+                if agents[i].train_config.can_train
             }
 
             # Inner Loop: Training Jobs (leave=False clears it after this generation is done)
