@@ -300,7 +300,7 @@ class AgentTrainerAgent:
             feedback_timestep_freq=FEEDBACK_FREQ,
             reflection=reflection,
         )
-        await self.session.add_items(feedback)
+        await self.session.add_items([{"role": "user", "content": feedback}])
 
     async def generate_new_config(self, reward_save_path: str):
         try:
