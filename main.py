@@ -49,7 +49,8 @@ mlflow.set_experiment("eureka-experiment")
 mlflow.openai.autolog()
 
 # --- CONFIGURATION ---
-ITERATIONS = 5
+EUREKA_ITERATIONS = 5
+HPO_ITERATIONS = 5
 SAMPLES_PER_ITER = 16
 N_ENVS = 4
 OUTPUT_DIR = "eureka_outputs"
@@ -105,6 +106,9 @@ class TrainingConfig:
         self.new_hp = False
         self.new_code = False
         self.can_train = True
+
+    def __str__(self):
+        return f"Algorithm: {self.algorithm}, Hyperparameters: {self.hyperparameters}, Reward Code: {self.reward_code}"
 
     def get_tools(self):
         @function_tool
@@ -282,9 +286,6 @@ class AgentTrainerAgent:
         else:
             raise Exception("No new hyperparameters generated.")
 
-    async def add_feedback(self, feedback: str):
-        await self.session.add_items([{"role": "user", "content": feedback}])
-
     async def generate_init_config(self, reward_save_path: str):
         try:
             await self.edit_reward(
@@ -294,17 +295,19 @@ class AgentTrainerAgent:
         except Exception as e:
             self.train_config.can_train = False
 
-    async def generate_new_config(self, reflection: str, reward_save_path: str):
+    async def add_feedback(self, reflection: str):
         feedback = prompts.policy_feedback.prompt.format(
             feedback_timestep_freq=FEEDBACK_FREQ,
             reflection=reflection,
         )
-        await self.add_feedback(feedback)
+        await self.session.add_items(feedback)
+
+    async def generate_new_config(self, reward_save_path: str):
         try:
             await self.edit_reward(
                 prompt=prompts.modify_reward.prompt, save_path=reward_save_path
             )
-            await self.suggest_hyperparameters()
+            # await self.suggest_hyperparameters()
         except Exception as e:
             self.train_config.can_train = False
 
@@ -336,6 +339,8 @@ async def train_eureka(main_agent: AgentTrainerAgent):
         os.makedirs(OUTPUT_DIR)
 
     best_iter_idx = None
+    best_reward_session_history = None
+    best_train_config = None
     best_score = -float("inf")
 
     # --- INITIAL GENERATION ---
@@ -361,7 +366,7 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
     # --- EUREKA LOOP ---
     # Outer Loop: Evolution Iterations (position=0 keeps it at the bottom)
-    outer_bar = tqdm(range(ITERATIONS), desc="Evolution Iterations", position=0)
+    outer_bar = tqdm(range(EUREKA_ITERATIONS), desc="Evolution Iterations", position=0)
 
     for iter_idx in outer_bar:
         tqdm.write(f"\n--- Iteration {iter_idx} ---")
@@ -421,16 +426,19 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                 f"Best of Iteration {iter_idx}: #{winner_idx} with score {winner_score:.2f}"
             )
 
+            winner_session_history = await agents[winner_idx].session.get_items()
+
             if winner_score > best_score:
                 tqdm.write(f"New Global Best Score: {winner_score:.2f}")
                 best_score = winner_score
+                best_reward_session_history = winner_session_history
+                best_train_config = deepcopy(agents[winner_idx].train_config)
                 best_iter_idx = (iter_idx, winner_idx)
 
-            if iter_idx == ITERATIONS - 1:
+            if iter_idx == EUREKA_ITERATIONS - 1:
                 break
 
             # Mutation Step
-            winner_session_history = await agents[winner_idx].session.get_items()
             tasks = []
             for i, agent in enumerate(agents):
                 if i != winner_idx:
@@ -438,8 +446,10 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     await agent.load_history(winner_session_history)
 
                 agent.train_config.can_train = True
-                task = agent.generate_new_config(
+                await agent.add_feedback(
                     reflection=winner_reflection,
+                )
+                task = agent.generate_new_config(
                     reward_save_path=f"{OUTPUT_DIR}/iter{iter_idx + 1}_response{i}.txt",
                 )
                 tasks.append(task)
@@ -452,6 +462,7 @@ async def train_eureka(main_agent: AgentTrainerAgent):
     tqdm.write(
         f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
     )
+    return best_score, best_iter_idx, best_reward_session_history, best_train_config
 
 
 async def main():
@@ -465,7 +476,49 @@ async def main():
     await agent.select_algorithm()
 
     # Train Eureka
-    await train_eureka(agent)
+    (
+        best_score,
+        best_iter_idx,
+        best_reward_session_history,
+        best_train_config,
+    ) = await train_eureka(agent)
+    agent.train_config = best_train_config
+
+    # HPO
+    await agent.clear_history()
+    await agent.load_history(best_reward_session_history)
+
+    for i in tqdm(range(HPO_ITERATIONS)):
+        while True:
+            # Retry until successful hyperparameter suggestion
+            try:
+                await agent.suggest_hyperparameters()
+                break
+            except Exception as e:
+                pass
+
+        score, reflection = train_and_eval(
+            ENV_ID,
+            ENV_KWARGS,
+            train_config.algorithm,
+            train_config.hyperparameters,
+            N_ENVS,
+            EurekaWrapper,
+            {"is_eval": False},
+            train_config.reward_code,
+            TOTAL_TIMESTEPS,
+            FEEDBACK_FREQ,
+            f"HPO{i}",
+        )
+
+        if score > best_score:
+            best_score = score
+            best_train_config = deepcopy(agent.train_config)
+            tqdm.write(f"New Global Best Score: {best_score:.2f}")
+
+        await agent.add_feedback(reflection)
+
+    tqdm.write(f"Best score: {best_score:.2f}, Best config: {best_train_config}")
 
     # Load models
     # models_path = [
