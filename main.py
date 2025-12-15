@@ -497,6 +497,9 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
         # --------------------------------
         # 3. EVOLUTION
+        if len(candidates) == 0:
+            raise Exception("No successful candidates found!")
+
         if candidates:
             candidates.sort(key=lambda x: x[1], reverse=True)
             winner_idx, winner_score, winner_reflection = candidates[0]
