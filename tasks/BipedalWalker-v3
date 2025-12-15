@@ -1,0 +1,18 @@
+## Task
+Your task is to train a 2D two-legged robot to coordinate its limbs and successfully walk from the left side of the screen to the right side without falling over
+
+## Action Space
+__dict__: {action_space_dict}
+
+Actions are motor speed values in the [-1, 1] range for each of the 4 joints at both hips and knees.
+
+## Observation Space
+__dict__: {observation_space_dict}
+
+State consists of hull angle speed, angular velocity, horizontal speed, vertical speed, position of joints and joints angular speed, legs contact with ground, and 10 lidar rangefinder measurements. There are no coordinates in the state vector.
+
+## Starting State
+The walker starts standing at the left end of the terrain with the hull horizontal, and both legs in the same position with a slight knee angle.
+
+## Episode Termination
+The episode will terminate if the hull gets in contact with the ground or if the walker exceeds the right end of the terrain length.
