@@ -159,14 +159,14 @@ class TrainingConfig:
             gamma: float,
             gae_lambda: float,
             clip_range: float,
-            clip_range_vf: None | float,
+            clip_range_vf: str | float,
             normalize_advantage: bool,
             ent_coef: float,
             vf_coef: float,
             max_grad_norm: float,
             use_sde: bool,
             sde_sample_freq: int,
-            target_kl: float | None,
+            target_kl: float | str,
         ):
             """
             Suggest a set of hyperparameters for the selected algorithm.
