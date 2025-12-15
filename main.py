@@ -362,7 +362,7 @@ class AgentTrainerAgent:
             await self.edit_reward(
                 prompt=prompts.write_init_reward.prompt, save_path=reward_save_path
             )
-            await self.suggest_hyperparameters()
+            # await self.suggest_hyperparameters()
         except Exception as e:
             self.train_config.can_train = False
 
