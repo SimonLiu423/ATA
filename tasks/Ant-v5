@@ -1,5 +1,5 @@
 ## Task
-Your task is to train a 2D two-legged robot to coordinate its limbs and successfully walk from the left side of the screen to the right side without falling over
+Your task is to coordinate the four legs to move in the forward (right) direction by applying torque to the eight hinges connecting the two body parts of each leg and the torso (nine body parts and eight hinges).
 
 ## Description
 This environment is based on the one introduced by Schulman, Moritz, Levine, Jordan, and Abbeel in “High-Dimensional Continuous Control Using Generalized Advantage Estimation”. The ant is a 3D quadruped robot consisting of a torso (free rotational body) with four legs attached to it, where each leg has two body parts. The goal is to coordinate the four legs to move in the forward (right) direction by applying torque to the eight hinges connecting the two body parts of each leg and the torso (nine body parts and eight hinges).
