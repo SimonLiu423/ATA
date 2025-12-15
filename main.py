@@ -9,6 +9,8 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Dict, List
 
+from openai.types import Reasoning
+
 # Import tqdm
 from stable_baselines3 import A2C, DDPG, DQN, PPO, SAC, TD3
 from tqdm import tqdm
@@ -22,6 +24,7 @@ import gymnasium as gym
 import litellm
 from agents import (
     Agent,
+    ModelSettings,
     Runner,
     Session,
     SQLiteSession,
@@ -53,11 +56,11 @@ mlflow.openai.autolog()
 # --- CONFIGURATION ---
 EUREKA_ITERATIONS = 5
 HPO_ITERATIONS = 5
-SAMPLES_PER_ITER = 4
+SAMPLES_PER_ITER = 16
 N_ENVS = 4
 OUTPUT_DIR = "experiments"
 MAX_PARALLEL_JOBS = 16
-TOTAL_TIMESTEPS = 10_000
+TOTAL_TIMESTEPS = 5_000_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
 RETRY_COUNT = 5
 SUCCESS_THRESHOLD = 2000
@@ -65,7 +68,7 @@ EVAL_FREQ = TOTAL_TIMESTEPS * 0.05
 # --------------------
 
 
-MODEL = "gemini3pro"
+MODEL = "gpt-5.2"
 ENV_ID = "Ant-v5"
 ENV_KWARGS = {}
 DEVICE = "cpu"
@@ -258,10 +261,11 @@ class AgentTrainerAgent:
             instructions=prompts.system_role.prompt,
             model=LitellmModel(
                 base_url="https://openrouter.ai/api/v1",
-                model="openrouter/google/gemini-3-pro-preview",
+                model="openrouter/openai/gpt-5.2",
                 api_key=api_key,
             ),
             tools=list(train_config.get_tools().values()),
+            model_settings=ModelSettings(reasoning=Reasoning(effort="medium")),
         )
         self.max_turns = max_turns
         self.train_config = train_config
