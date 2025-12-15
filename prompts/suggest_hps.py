@@ -1,9 +1,6 @@
 prompt = """
 Please recommend a configuration of hyperparameters to optimize the agent's performance.
 
-Refer to the algorithm's signature here: <signature> {signature} </signature>
-
-Guidance on Rewards:
 - The magnitude and frequency of your rewards influence how parameters like 'learning_rate' and 'entropy_coefficient' behave.
 - For dense, high-value rewards: Decrease the learning rate or increase gradient clipping.
 - For sparse rewards: Set the discount factor (gamma) closer to 0.999.
