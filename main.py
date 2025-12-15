@@ -40,7 +40,7 @@ from eureka_wrapper import EurekaWrapper
 from train_worker import train_and_eval
 
 set_trace_processors([])
-import mlflow  # noqa: E402
+# import mlflow  # noqa: E402
 
 litellm.suppress_debug_info = True
 litellm.DEFAULT_REQUEST_TIMEOUT = 90
@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-mlflow.set_tracking_uri("http://127.0.0.1:5001")
-mlflow.set_experiment("eureka-experiment")
-mlflow.openai.autolog()
+# mlflow.set_tracking_uri("http://127.0.0.1:5001")
+# mlflow.set_experiment("eureka-experiment")
+# mlflow.openai.autolog()
 
 
 # --- CONFIGURATION ---
@@ -406,7 +406,7 @@ def train_baseline(total_timesteps):
     train_and_eval(
         env_id=ENV_ID,
         env_kwargs=ENV_KWARGS,
-        algorithm=PPO,
+        algorithm=SAC,
         hyperparameters={"policy": "MlpPolicy"},
         n_envs=N_ENVS,
         wrapper_class=EurekaWrapper,
@@ -578,29 +578,29 @@ async def main():
     os.makedirs(BEST_MODELS_DIR, exist_ok=True)
     os.makedirs(TENSORBOARD_LOGS_DIR, exist_ok=True)
     # # Train baseline
-    # train_baseline()
+    train_baseline(1_000_000)
 
-    train_config = TrainingConfig()
-    agent = AgentTrainerAgent(train_config, "main_session")
+    # train_config = TrainingConfig()
+    # agent = AgentTrainerAgent(train_config, "main_session")
 
-    await agent.load_background_context()
-    await agent.select_algorithm()
+    # await agent.load_background_context()
+    # await agent.select_algorithm()
 
-    # Train Eureka
-    (
-        best_score,
-        best_iter_idx,
-        best_reward_session_history,
-        best_train_config,
-    ) = await train_eureka(agent)
-    agent.train_config = best_train_config
+    # # Train Eureka
+    # (
+    #     best_score,
+    #     best_iter_idx,
+    #     best_reward_session_history,
+    #     best_train_config,
+    # ) = await train_eureka(agent)
+    # agent.train_config = best_train_config
 
-    # HPO
-    await agent.clear_history()
-    await agent.load_history(best_reward_session_history)
+    # # HPO
+    # await agent.clear_history()
+    # await agent.load_history(best_reward_session_history)
 
-    with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
-        pickle.dump(best_reward_session_history, f)
+    # with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
+    #     pickle.dump(best_reward_session_history, f)
 
     # retry_count = 0
     # for i in tqdm(range(HPO_ITERATIONS)):
