@@ -44,7 +44,7 @@ def train_and_eval(
     reflection_callback = ReflectionCallback()
     eval_callback = EvalCallback(
         eval_env=eval_env,
-        eval_freq=total_timesteps // (eval_freq * n_envs),
+        eval_freq=eval_freq,
         best_model_save_path=os.path.join(model_save_dir, tb_log_name),
         log_path=os.path.join(eval_log_dir, tb_log_name),
     )
