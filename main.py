@@ -150,19 +150,82 @@ class TrainingConfig:
             return {"success": True}
 
         @function_tool
-        def suggest_hyperparameters(hyperparameters_json: str) -> dict:
+        def suggest_hyperparameters(
+            policy: str,
+            learning_rate: float,
+            n_steps: int,
+            batch_size: int,
+            n_epochs: int,
+            gamma: float,
+            gae_lambda: float,
+            clip_range: float,
+            clip_range_vf: None | float,
+            normalize_advantage: bool,
+            ent_coef: float,
+            vf_coef: float,
+            max_grad_norm: float,
+            use_sde: bool,
+            sde_sample_freq: int,
+            target_kl: float | None,
+        ):
             """
             Suggest a set of hyperparameters for the selected algorithm.
             The suggested hyperparameters will be used to train the RL agent.
 
-            Args:
-                    hyperparameters_json (str): A json string of hyperparameters.
-                    The keys are the hyperparameter names and the values are the
-                    corresponding values. For example, {"learning_rate": 0.1, "batch_size": 32}.
-            Returns:
+            args:
+                    policy (str): The policy model to use.
+                    learning_rate (float): The learning rate (from 1 to 0).
+                    n_steps (int): The number of steps to run for each environment per update (i.e. rollout buffer size is n_steps * n_envs where n_envs is number of environment copies running in parallel)
+                    batch_size (int): Minibatch size.
+                    n_epochs (int): Number of epoch when optimizing the surrogate loss
+                    gamma (float): Discount factor
+                    gae_lambda (float): Factor for trade-off of bias vs variance for Generalized Advantage Estimator
+                    clip_range (float): Clipping parameter (from 1 to 0). IMPORTANT: this clipping depends on the reward scaling.
+                    clip_range_vf (str | float): Clipping parameter for the value function (from 1 to 0). This is a parameter specific to the OpenAI implementation. If string value "None" is passed, no clipping will be done on the value function. IMPORTANT: this clipping depends on the reward scaling.
+                    normalize_advantage (bool): Whether to normalize or not the advantage
+                    ent_coef (float): Entropy coefficient for the loss calculation
+                    vf_coef (float): Value function coefficient for the loss calculation
+                    max_grad_norm (float): The maximum value for the gradient clipping
+                    use_sde (bool): Whether to use generalized State Dependent Exploration (gSDE) instead of action noise exploration (default: False)
+                    sde_sample_freq (int): Sample a new noise matrix every n steps when using gSDE Default: -1 (only sample at the beginning of the rollout)
+                    target_kl (float | str): Limit the KL divergence between updates, because the clipping is not enough to prevent large update. If string value "None" is passed, there is no limit on the kl div.
+
+            returns:
                     dict: Success status or error message.
             """
-            hyperparameters = json.loads(hyperparameters_json)
+            if type(clip_range_vf) is str:
+                if clip_range_vf == "None":
+                    clip_range_vf = None
+                else:
+                    raise ValueError(
+                        "Only 'None' is supported for 'clip_range_vf' string value"
+                    )
+            if type(target_kl) is str:
+                if target_kl == "None":
+                    target_kl = None
+                else:
+                    raise ValueError(
+                        "Only 'None' is supported for 'target_kl' string value"
+                    )
+
+            hyperparameters = {
+                "policy": policy,
+                "learning_rate": learning_rate,
+                "n_steps": n_steps,
+                "batch_size": batch_size,
+                "n_epochs": n_epochs,
+                "gamma": gamma,
+                "gae_lambda": gae_lambda,
+                "clip_range": clip_range,
+                "clip_range_vf": clip_range_vf,
+                "normalize_advantage": normalize_advantage,
+                "ent_coef": ent_coef,
+                "vf_coef": vf_coef,
+                "max_grad_norm": max_grad_norm,
+                "use_sde": use_sde,
+                "sde_sample_freq": sde_sample_freq,
+                "target_kl": target_kl,
+            }
             sig = inspect.signature(self.algorithm)
             try:
                 sig.bind(env=ENV_ID, device=DEVICE, **hyperparameters)
@@ -221,7 +284,7 @@ class AgentTrainerAgent:
         await self.session.add_items([item])
 
     async def select_algorithm(self):
-        # self.agent.tools = [self.train_config.get_tools()["algorithm"]]
+        self.agent.tools = [self.train_config.get_tools()["algorithm"]]
         await Runner.run(
             self.agent,
             prompts.select_algorithm.prompt,
@@ -240,7 +303,7 @@ class AgentTrainerAgent:
             raise Exception("No algorithm selected.")
 
     async def edit_reward(self, prompt: str, save_path: str):
-        # self.agent.tools = [self.train_config.get_tools()["reward"]]
+        self.agent.tools = [self.train_config.get_tools()["reward"]]
         # TODO: experiment with 1 agent generating 16 reward functions
         await Runner.run(
             self.agent, prompt, session=self.session, max_turns=self.max_turns
@@ -263,7 +326,7 @@ class AgentTrainerAgent:
             raise Exception("No new code generated.")
 
     async def suggest_hyperparameters(self):
-        # self.agent.tools = [self.train_config.get_tools()["hyperparameters"]]
+        self.agent.tools = [self.train_config.get_tools()["hyperparameters"]]
         await Runner.run(
             self.agent,
             prompts.suggest_hps.prompt.format(
@@ -429,9 +492,9 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
             winner_session_history = await agents[winner_idx].session.get_items()
 
-            if winner_score > best_score:
+            if float(winner_score) > float(best_score):
                 tqdm.write(f"New Global Best Score: {winner_score:.2f}")
-                best_score = winner_score
+                best_score = float(winner_score)
                 best_reward_session_history = winner_session_history
                 best_train_config = deepcopy(agents[winner_idx].train_config)
                 best_iter_idx = (iter_idx, winner_idx)
@@ -501,12 +564,12 @@ async def main():
         score, reflection = train_and_eval(
             ENV_ID,
             ENV_KWARGS,
-            train_config.algorithm,
-            train_config.hyperparameters,
+            agent.train_config.algorithm,
+            agent.train_config.hyperparameters,
             N_ENVS,
             EurekaWrapper,
             {"is_eval": False},
-            train_config.reward_code,
+            agent.train_config.reward_code,
             TOTAL_TIMESTEPS,
             FEEDBACK_FREQ,
             f"HPO{i}",
