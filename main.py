@@ -5,6 +5,7 @@ import json
 import logging
 import multiprocessing
 import os
+import pickle
 from copy import deepcopy
 from datetime import datetime
 from typing import Dict, List
@@ -585,44 +586,47 @@ async def main():
     await agent.clear_history()
     await agent.load_history(best_reward_session_history)
 
-    retry_count = 0
-    for i in tqdm(range(HPO_ITERATIONS)):
-        while retry_count < RETRY_COUNT:
-            # Retry until successful hyperparameter suggestion
-            try:
-                await agent.suggest_hyperparameters()
-                break
-            except Exception as e:
-                pass
-            retry_count += 1
+    with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
+        pickle.dump(best_reward_session_history, f)
 
-        score, reflection = train_and_eval(
-            env_id=ENV_ID,
-            env_kwargs=ENV_KWARGS,
-            algorithm=agent.train_config.algorithm,
-            hyperparameters=agent.train_config.hyperparameters,
-            n_envs=N_ENVS,
-            wrapper_class=EurekaWrapper,
-            wrapper_kwargs={"is_eval": False},
-            reward_code=agent.train_config.reward_code,
-            total_timesteps=TOTAL_TIMESTEPS,
-            feedback_freq=FEEDBACK_FREQ,
-            model_save_dir=BEST_MODELS_DIR,
-            tb_log_dir=TENSORBOARD_LOGS_DIR,
-            tb_log_name=f"HPO{i}",
-            eval_log_dir=EVAL_LOGS_DIR,
-            eval_freq=EVAL_FREQ,
-            success_threshold=SUCCESS_THRESHOLD,
-        )
+    # retry_count = 0
+    # for i in tqdm(range(HPO_ITERATIONS)):
+    #     while retry_count < RETRY_COUNT:
+    #         # Retry until successful hyperparameter suggestion
+    #         try:
+    #             await agent.suggest_hyperparameters()
+    #             break
+    #         except Exception as e:
+    #             pass
+    #         retry_count += 1
 
-        if score > best_score:
-            best_score = score
-            best_train_config = deepcopy(agent.train_config)
-            tqdm.write(f"New Global Best Score: {best_score:.2f}")
+    #     score, reflection = train_and_eval(
+    #         env_id=ENV_ID,
+    #         env_kwargs=ENV_KWARGS,
+    #         algorithm=agent.train_config.algorithm,
+    #         hyperparameters=agent.train_config.hyperparameters,
+    #         n_envs=N_ENVS,
+    #         wrapper_class=EurekaWrapper,
+    #         wrapper_kwargs={"is_eval": False},
+    #         reward_code=agent.train_config.reward_code,
+    #         total_timesteps=TOTAL_TIMESTEPS,
+    #         feedback_freq=FEEDBACK_FREQ,
+    #         model_save_dir=BEST_MODELS_DIR,
+    #         tb_log_dir=TENSORBOARD_LOGS_DIR,
+    #         tb_log_name=f"HPO{i}",
+    #         eval_log_dir=EVAL_LOGS_DIR,
+    #         eval_freq=EVAL_FREQ,
+    #         success_threshold=SUCCESS_THRESHOLD,
+    #     )
 
-        await agent.add_feedback(reflection)
+    #     if score > best_score:
+    #         best_score = score
+    #         best_train_config = deepcopy(agent.train_config)
+    #         tqdm.write(f"New Global Best Score: {best_score:.2f}")
 
-    tqdm.write(f"Best score: {best_score:.2f}, Best config: {best_train_config}")
+    #     await agent.add_feedback(reflection)
+
+    # tqdm.write(f"Best score: {best_score:.2f}, Best config: {best_train_config}")
 
     # Load models
     # models_path = [
