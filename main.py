@@ -61,11 +61,10 @@ SAMPLES_PER_ITER = 16
 N_ENVS = 4
 OUTPUT_DIR = "experiments"
 MAX_PARALLEL_JOBS = 16
-TOTAL_TIMESTEPS = 5_000_000
-FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
+FEEDBACK_FREQ_FACTOR = 10  # TOTAL_TIMESTEPS // (N_ENVS * FEEDBACK_FREQ)
 RETRY_COUNT = 5
 SUCCESS_THRESHOLD = 2000
-EVAL_FREQ = TOTAL_TIMESTEPS * 0.05
+EVAL_FREQ_FACTOR = 0.05  # TOTAL_TIMESTEPS * EVAL_FREQ_FACTOR
 # --------------------
 
 
@@ -74,7 +73,7 @@ ENV_ID = "Ant-v5"
 ENV_KWARGS = {}
 DEVICE = "cpu"
 EXPERIMENT_METADATA = f"{datetime.now().strftime('%m%d-%H%M')}"
-EXPERIMENT_NAME = f"{ENV_ID}-{TOTAL_TIMESTEPS / 1000}k-{MODEL}-{EXPERIMENT_METADATA}"
+EXPERIMENT_NAME = f"{ENV_ID}-{MODEL}-{EXPERIMENT_METADATA}"
 
 TASKS_DIR = os.path.join(os.path.curdir, "tasks")
 RESULTS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME)
@@ -114,6 +113,14 @@ class TrainingConfig:
         self.new_hp = False
         self.new_code = False
         self.can_train = True
+        self.total_timesteps = None
+        self.feedback_freq = None
+        self.eval_freq = None
+
+    def set_total_timesteps(self, total_timesteps):
+        self.total_timesteps = total_timesteps
+        self.feedback_freq = total_timesteps // (N_ENVS * FEEDBACK_FREQ_FACTOR)
+        self.eval_freq = total_timesteps * EVAL_FREQ_FACTOR
 
     def __str__(self):
         return f"Algorithm: {self.algorithm}, Hyperparameters: {self.hyperparameters}, Reward Code: {self.reward_code}"
@@ -155,6 +162,12 @@ class TrainingConfig:
                     "error": f"invalid algorithm, available algorithms: {RL_ALGORITHMS.keys()}",
                 }
             self.algorithm = RL_ALGORITHMS[algorithm]
+
+            # TODO: Let LLM choose total timesteps
+            if algorithm in ["SAC", "TD3", "DDPG"]:
+                self.set_total_timesteps(1_000_000)
+            else:
+                self.set_total_timesteps(10_000_000)
             return {"success": True}
 
         @function_tool
@@ -369,7 +382,7 @@ class AgentTrainerAgent:
 
     async def add_feedback(self, reflection: str):
         feedback = prompts.policy_feedback.prompt.format(
-            feedback_timestep_freq=FEEDBACK_FREQ,
+            feedback_timestep_freq=self.train_config.feedback_freq,
             reflection=reflection,
         )
         await self.session.add_items([{"role": "user", "content": feedback}])
@@ -389,7 +402,7 @@ def write_str_to_file(string: str, file_path: str):
         f.write(string)
 
 
-def train_baseline():
+def train_baseline(total_timesteps):
     train_and_eval(
         env_id=ENV_ID,
         env_kwargs=ENV_KWARGS,
@@ -399,14 +412,14 @@ def train_baseline():
         wrapper_class=EurekaWrapper,
         wrapper_kwargs={"is_eval": True},
         reward_code="",
-        total_timesteps=TOTAL_TIMESTEPS,
-        feedback_freq=FEEDBACK_FREQ,
+        total_timesteps=total_timesteps,
+        feedback_freq=total_timesteps // (N_ENVS * FEEDBACK_FREQ_FACTOR),
         model_save_dir=BEST_MODELS_DIR,
         eval_log_dir=EVAL_LOGS_DIR,
         tb_log_dir=TENSORBOARD_LOGS_DIR,
         tb_log_name="baseline",
         success_threshold=SUCCESS_THRESHOLD,
-        eval_freq=EVAL_FREQ,
+        eval_freq=total_timesteps * EVAL_FREQ_FACTOR,
     )
 
 
@@ -465,14 +478,14 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     wrapper_class=EurekaWrapper,
                     wrapper_kwargs={"is_eval": False},
                     reward_code=agents[i].train_config.reward_code,
-                    total_timesteps=TOTAL_TIMESTEPS,
-                    feedback_freq=FEEDBACK_FREQ,
+                    total_timesteps=agents[i].train_config.total_timesteps,
+                    feedback_freq=agents[i].train_config.feedback_freq,
                     model_save_dir=BEST_MODELS_DIR,
                     eval_log_dir=EVAL_LOGS_DIR,
                     tb_log_dir=TENSORBOARD_LOGS_DIR,
                     tb_log_name=f"iter{iter_idx}_sample{i}",
                     success_threshold=SUCCESS_THRESHOLD,
-                    eval_freq=EVAL_FREQ,
+                    eval_freq=agents[i].train_config.eval_freq,
                 ): i
                 for i in range(SAMPLES_PER_ITER)
                 if agents[i].train_config.can_train
