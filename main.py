@@ -59,13 +59,13 @@ OUTPUT_DIR = "experiments"
 MAX_PARALLEL_JOBS = 16
 TOTAL_TIMESTEPS = 10_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
-RETRY_COUNT = 3
+RETRY_COUNT = 5
 SUCCESS_THRESHOLD = 2000
-EVAL_FREQ = TOTAL_TIMESTEPS * 0.05 * N_ENVS
+EVAL_FREQ = TOTAL_TIMESTEPS * 0.05
 # --------------------
 
 
-MODEL = "katcoderpro"
+MODEL = "gemini3pro"
 ENV_ID = "Ant-v5"
 ENV_KWARGS = {}
 DEVICE = "cpu"
@@ -256,7 +256,7 @@ class AgentTrainerAgent:
             instructions=prompts.system_role.prompt,
             model=LitellmModel(
                 base_url="https://openrouter.ai/api/v1",
-                model="openrouter/kwaipilot/kat-coder-pro:free",
+                model="openrouter/google/gemini-3-pro-preview",
                 api_key=api_key,
             ),
             tools=list(train_config.get_tools().values()),
@@ -579,14 +579,16 @@ async def main():
     await agent.clear_history()
     await agent.load_history(best_reward_session_history)
 
+    retry_count = 0
     for i in tqdm(range(HPO_ITERATIONS)):
-        while True:
+        while retry_count < RETRY_COUNT:
             # Retry until successful hyperparameter suggestion
             try:
                 await agent.suggest_hyperparameters()
                 break
             except Exception as e:
                 pass
+            retry_count += 1
 
         score, reflection = train_and_eval(
             env_id=ENV_ID,
