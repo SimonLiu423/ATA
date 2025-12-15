@@ -6,6 +6,7 @@ import logging
 import multiprocessing
 import os
 from copy import deepcopy
+from datetime import datetime
 from typing import Dict, List
 
 # Import tqdm
@@ -68,7 +69,7 @@ MODEL = "katcoderpro"
 ENV_ID = "Ant-v5"
 ENV_KWARGS = {}
 DEVICE = "cpu"
-EXPERIMENT_METADATA = ""
+EXPERIMENT_METADATA = f"{datetime.now().strftime('%m%d-%H%M')}"
 EXPERIMENT_NAME = f"{ENV_ID}-{TOTAL_TIMESTEPS / 1000}k-{MODEL}-{EXPERIMENT_METADATA}"
 
 TASKS_DIR = os.path.join(os.path.curdir, "tasks")
