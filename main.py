@@ -48,17 +48,33 @@ mlflow.set_tracking_uri("http://127.0.0.1:5001")
 mlflow.set_experiment("eureka-experiment")
 mlflow.openai.autolog()
 
+
 # --- CONFIGURATION ---
 EUREKA_ITERATIONS = 5
 HPO_ITERATIONS = 5
-SAMPLES_PER_ITER = 16
+SAMPLES_PER_ITER = 4
 N_ENVS = 4
-OUTPUT_DIR = "eureka_outputs"
+OUTPUT_DIR = "experiments"
 MAX_PARALLEL_JOBS = 16
-TOTAL_TIMESTEPS = 1_000_000
+TOTAL_TIMESTEPS = 10_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
 RETRY_COUNT = 3
 # --------------------
+
+
+MODEL = "katcoderpro"
+ENV_ID = "Ant-v5"
+ENV_KWARGS = {}
+DEVICE = "cpu"
+EXPERIMENT_METADATA = ""
+EXPERIMENT_NAME = f"{ENV_ID}-{TOTAL_TIMESTEPS / 1000}k-{MODEL}-{EXPERIMENT_METADATA}"
+
+TASKS_DIR = os.path.join(os.path.curdir, "tasks")
+RESULTS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME)
+REWARD_OUTPUT_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME, "reward_codes")
+BEST_MODELS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME, "best_models")
+EVAL_LOGS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME, "eval_logs")
+TENSORBOARD_LOGS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME, "tensorboard_logs")
 
 
 def get_env_task_desc():
@@ -66,11 +82,7 @@ def get_env_task_desc():
         return f.read()
 
 
-ENV_ID = "Ant-v5"
-ENV_KWARGS = {}
-DEVICE = "cpu"
 TASK_DESC = get_env_task_desc()
-
 
 load_dotenv()
 api_key = os.getenv("OPENROUTER_API_KEY") or ""
@@ -369,25 +381,24 @@ def write_str_to_file(string: str, file_path: str):
 
 def train_baseline():
     train_and_eval(
-        ENV_ID,
-        ENV_KWARGS,
-        PPO,
-        {"policy": "MlpPolicy"},
-        N_ENVS,
-        EurekaWrapper,
-        {"is_eval": True},
-        "",
-        TOTAL_TIMESTEPS,
-        FEEDBACK_FREQ,
-        "baseline",
+        env_id=ENV_ID,
+        env_kwargs=ENV_KWARGS,
+        algorithm=PPO,
+        hyperparameters={"policy": "MlpPolicy"},
+        n_envs=N_ENVS,
+        wrapper_class=EurekaWrapper,
+        wrapper_kwargs={"is_eval": True},
+        reward_code="",
+        total_timesteps=TOTAL_TIMESTEPS,
+        feedback_freq=FEEDBACK_FREQ,
+        model_save_dir=BEST_MODELS_DIR,
+        eval_log_dir=EVAL_LOGS_DIR,
+        tb_log_dir=TENSORBOARD_LOGS_DIR,
+        tb_log_name="baseline",
     )
 
 
 async def train_eureka(main_agent: AgentTrainerAgent):
-    # Eureka
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-
     best_iter_idx = None
     best_reward_session_history = None
     best_train_config = None
@@ -407,7 +418,9 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
         await agent.load_history(conversation_history)
         task = agent.generate_init_config(
-            reward_save_path=f"{OUTPUT_DIR}/iter{0}_response{sample_idx}.txt"
+            reward_save_path=os.path.join(
+                REWARD_OUTPUT_DIR, f"iter{0}_response{sample_idx}.txt"
+            )
         )
         tasks.append(task)
 
@@ -432,17 +445,20 @@ async def train_eureka(main_agent: AgentTrainerAgent):
             future_to_idx = {
                 executor.submit(
                     train_and_eval,
-                    ENV_ID,
-                    ENV_KWARGS,
-                    agents[i].train_config.algorithm,
-                    agents[i].train_config.hyperparameters,
-                    N_ENVS,
-                    EurekaWrapper,
-                    {"is_eval": False},
-                    agents[i].train_config.reward_code,
-                    TOTAL_TIMESTEPS,
-                    FEEDBACK_FREQ,
-                    f"iter{iter_idx}_sample{i}",
+                    env_id=ENV_ID,
+                    env_kwargs=ENV_KWARGS,
+                    algorithm=agents[i].train_config.algorithm,
+                    hyperparameters=agents[i].train_config.hyperparameters,
+                    n_envs=N_ENVS,
+                    wrapper_class=EurekaWrapper,
+                    wrapper_kwargs={"is_eval": False},
+                    reward_code=agents[i].train_config.reward_code,
+                    total_timesteps=TOTAL_TIMESTEPS,
+                    feedback_freq=FEEDBACK_FREQ,
+                    model_save_dir=BEST_MODELS_DIR,
+                    eval_log_dir=EVAL_LOGS_DIR,
+                    tb_log_dir=TENSORBOARD_LOGS_DIR,
+                    tb_log_name=f"iter{iter_idx}_sample{i}",
                 ): i
                 for i in range(SAMPLES_PER_ITER)
                 if agents[i].train_config.can_train
@@ -461,10 +477,15 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     score, reflection = future.result()
                     tqdm.write(f"  > Finished Sample {idx}: Score {score:.2f}")
                     candidates.append((idx, score, reflection))
+                    write_str_to_file(
+                        f"Score: {score:.2f}\n{reflection}",
+                        os.path.join(RESULTS_DIR, f"iter{iter_idx}_response{idx}.txt"),
+                    )
                 except Exception as e:
                     tqdm.write(f"  > Failed Sample {idx}: {e}")
                     write_str_to_file(
-                        str(e), f"{OUTPUT_DIR}/iter{iter_idx}_failed{idx}.txt"
+                        str(e),
+                        os.path.join(RESULTS_DIR, f"iter{iter_idx}_failed{idx}.txt"),
                     )
 
         # --------------------------------
@@ -475,6 +496,10 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
             tqdm.write(
                 f"Best of Iteration {iter_idx}: #{winner_idx} with score {winner_score:.2f}"
+            )
+            write_str_to_file(
+                f"Idx: {winner_idx}\nScore: {winner_score:.2f}",
+                os.path.join(RESULTS_DIR, f"iter{iter_idx}_winner.txt"),
             )
 
             winner_session_history = await agents[winner_idx].session.get_items()
@@ -501,7 +526,9 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     reflection=winner_reflection,
                 )
                 task = agent.generate_new_config(
-                    reward_save_path=f"{OUTPUT_DIR}/iter{iter_idx + 1}_response{i}.txt",
+                    reward_save_path=os.path.join(
+                        REWARD_OUTPUT_DIR, f"iter{iter_idx + 1}_response{i}.txt"
+                    ),
                 )
                 tasks.append(task)
 
@@ -517,8 +544,11 @@ async def train_eureka(main_agent: AgentTrainerAgent):
 
 
 async def main():
+    os.makedirs(REWARD_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(BEST_MODELS_DIR, exist_ok=True)
+    os.makedirs(TENSORBOARD_LOGS_DIR, exist_ok=True)
     # # Train baseline
-    train_baseline()
+    # train_baseline()
 
     train_config = TrainingConfig()
     agent = AgentTrainerAgent(train_config, "main_session")
@@ -549,17 +579,19 @@ async def main():
                 pass
 
         score, reflection = train_and_eval(
-            ENV_ID,
-            ENV_KWARGS,
-            agent.train_config.algorithm,
-            agent.train_config.hyperparameters,
-            N_ENVS,
-            EurekaWrapper,
-            {"is_eval": False},
-            agent.train_config.reward_code,
-            TOTAL_TIMESTEPS,
-            FEEDBACK_FREQ,
-            f"HPO{i}",
+            env_id=ENV_ID,
+            env_kwargs=ENV_KWARGS,
+            algorithm=agent.train_config.algorithm,
+            hyperparameters=agent.train_config.hyperparameters,
+            n_envs=N_ENVS,
+            wrapper_class=EurekaWrapper,
+            wrapper_kwargs={"is_eval": False},
+            reward_code=agent.train_config.reward_code,
+            total_timesteps=TOTAL_TIMESTEPS,
+            feedback_freq=FEEDBACK_FREQ,
+            model_save_dir=BEST_MODELS_DIR,
+            tb_log_dir=TENSORBOARD_LOGS_DIR,
+            tb_log_name=f"HPO{i}",
         )
 
         if score > best_score:

@@ -1,3 +1,5 @@
+import os
+
 import gymnasium as gym
 import numpy as np
 from stable_baselines3.common.base_class import BaseAlgorithm
@@ -18,6 +20,9 @@ def train_and_eval(
     reward_code: str,
     total_timesteps: int,
     feedback_freq: int,
+    model_save_dir: str,
+    eval_log_dir: str,
+    tb_log_dir: str,
     tb_log_name: str,
 ):
     """
@@ -38,15 +43,15 @@ def train_and_eval(
     eval_callback = EvalCallback(
         eval_env=eval_env,
         eval_freq=total_timesteps // 100,
-        best_model_save_path=f"./best_models/{tb_log_name}/",
-        log_path=f"./eval_logs/{tb_log_name}/",
+        best_model_save_path=os.path.join(model_save_dir, tb_log_name),
+        log_path=os.path.join(eval_log_dir, tb_log_name),
     )
     callback_list = CallbackList([reflection_callback, eval_callback])
     model = algorithm(
         env=train_env,
         **hyperparameters,
         device="cpu",
-        tensorboard_log=f"./tensorboard_logs/{env_id}",
+        tensorboard_log=os.path.join(tb_log_dir, env_id),
     )
     model.learn(
         total_timesteps=total_timesteps,
