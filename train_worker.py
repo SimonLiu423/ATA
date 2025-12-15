@@ -64,7 +64,8 @@ def train_and_eval(
 
     train_env.close()
 
-    success_rate = np.mean(eval_callback.evaluations_results > success_threshold)
+    results_np = np.array(eval_callback.evaluations_results)
+    success_rate = np.mean((results_np > success_threshold).astype(int)).item()
 
     eval_feedback = """
 <Evaluation>
