@@ -103,7 +103,9 @@ RL_ALGORITHMS = {
 class TrainingConfig:
     def __init__(self):
         self.algorithm = None
-        self.hyperparameters = None
+        self.hyperparameters = {
+            "policy": "MlpPolicy",
+        }
         self.reward_code = None
         self.new_hp = False
         self.new_code = False
