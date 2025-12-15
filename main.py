@@ -59,6 +59,8 @@ MAX_PARALLEL_JOBS = 16
 TOTAL_TIMESTEPS = 10_000
 FEEDBACK_FREQ = TOTAL_TIMESTEPS // (N_ENVS * 10)
 RETRY_COUNT = 3
+SUCCESS_THRESHOLD = 2000
+EVAL_FREQ = 50
 # --------------------
 
 
@@ -395,6 +397,8 @@ def train_baseline():
         eval_log_dir=EVAL_LOGS_DIR,
         tb_log_dir=TENSORBOARD_LOGS_DIR,
         tb_log_name="baseline",
+        success_threshold=SUCCESS_THRESHOLD,
+        eval_freq=EVAL_FREQ,
     )
 
 
@@ -459,6 +463,8 @@ async def train_eureka(main_agent: AgentTrainerAgent):
                     eval_log_dir=EVAL_LOGS_DIR,
                     tb_log_dir=TENSORBOARD_LOGS_DIR,
                     tb_log_name=f"iter{iter_idx}_sample{i}",
+                    success_threshold=SUCCESS_THRESHOLD,
+                    eval_freq=EVAL_FREQ,
                 ): i
                 for i in range(SAMPLES_PER_ITER)
                 if agents[i].train_config.can_train
@@ -592,6 +598,9 @@ async def main():
             model_save_dir=BEST_MODELS_DIR,
             tb_log_dir=TENSORBOARD_LOGS_DIR,
             tb_log_name=f"HPO{i}",
+            eval_log_dir=EVAL_LOGS_DIR,
+            eval_freq=EVAL_FREQ,
+            success_threshold=SUCCESS_THRESHOLD,
         )
 
         if score > best_score:

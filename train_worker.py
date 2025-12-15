@@ -24,6 +24,8 @@ def train_and_eval(
     eval_log_dir: str,
     tb_log_dir: str,
     tb_log_name: str,
+    success_threshold: float,
+    eval_freq: int,
 ):
     """
     This function returns the score (float) or -infinity if it fails.
@@ -42,7 +44,7 @@ def train_and_eval(
     reflection_callback = ReflectionCallback()
     eval_callback = EvalCallback(
         eval_env=eval_env,
-        eval_freq=total_timesteps // 100,
+        eval_freq=total_timesteps // (eval_freq * n_envs),
         best_model_save_path=os.path.join(model_save_dir, tb_log_name),
         log_path=os.path.join(eval_log_dir, tb_log_name),
     )
@@ -62,16 +64,19 @@ def train_and_eval(
 
     train_env.close()
 
+    success_rate = np.mean(eval_callback.evaluations_results > success_threshold)
+
     eval_feedback = """
-    <evaluation>
-    Triggered at: {timesteps} (timesteps)
-    Episode length: {episode_length}
-    <Score>
-    Scores: {scores}
-    Max: {max_score: .2f}, Mean: {mean_score: .2f}, Min: {min_score: .2f}
-    </Score>
-    </evaluation>
-    """.format(
+<Evaluation>
+Triggered at: {timesteps} (timesteps)
+Episode length: {episode_length}
+<Score>
+Scores: {scores}
+Max: {max_score: .2f}, Mean: {mean_score: .2f}, Min: {min_score: .2f}
+Success rate (reward > {success_threshold}): {success_rate: .2f}
+</Score>
+</Evaluation>
+""".format(
         timesteps=["{}k".format(x / 1000) for x in eval_callback.evaluations_timesteps],
         episode_length=[
             "{:.2f}k".format(x)
@@ -84,6 +89,8 @@ def train_and_eval(
         max_score=np.max(eval_callback.evaluations_results),
         mean_score=np.mean(eval_callback.evaluations_results),
         min_score=np.min(eval_callback.evaluations_results),
+        success_threshold=success_threshold,
+        success_rate=success_rate,
     )
 
     return (
