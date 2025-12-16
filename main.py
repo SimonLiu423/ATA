@@ -63,17 +63,18 @@ OUTPUT_DIR = "experiments"
 MAX_PARALLEL_JOBS = 16
 FEEDBACK_FREQ_FACTOR = 10  # TOTAL_TIMESTEPS // (N_ENVS * FEEDBACK_FREQ)
 RETRY_COUNT = 5
-SUCCESS_THRESHOLD = 2000
-EVAL_FREQ_FACTOR = 0.05  # TOTAL_TIMESTEPS * EVAL_FREQ_FACTOR
+SUCCESS_THRESHOLD = 4000
+EVAL_FREQ_PERCENTAGE = 0.05  # int((TOTAL_TIMESTEPS * EVAL_FREQ_FACTOR) // N_ENVS)
 # --------------------
 
 
-MODEL = "gpt-5.2"
+MODEL_NAME = "gpt-5.2"
+MODEL_ID = "openrouter/openai/gpt-5.2"
 ENV_ID = "Ant-v5"
 ENV_KWARGS = {}
 DEVICE = "cpu"
 EXPERIMENT_METADATA = f"{datetime.now().strftime('%m%d-%H%M')}"
-EXPERIMENT_NAME = f"{ENV_ID}-{MODEL}-{EXPERIMENT_METADATA}"
+EXPERIMENT_NAME = f"{ENV_ID}-{MODEL_NAME}-{EXPERIMENT_METADATA}"
 
 TASKS_DIR = os.path.join(os.path.curdir, "tasks")
 RESULTS_DIR = os.path.join(OUTPUT_DIR, EXPERIMENT_NAME)
@@ -120,7 +121,7 @@ class TrainingConfig:
     def set_total_timesteps(self, total_timesteps):
         self.total_timesteps = total_timesteps
         self.feedback_freq = total_timesteps // (N_ENVS * FEEDBACK_FREQ_FACTOR)
-        self.eval_freq = total_timesteps * EVAL_FREQ_FACTOR
+        self.eval_freq = int((total_timesteps * EVAL_FREQ_PERCENTAGE) // N_ENVS)
 
     def __str__(self):
         return f"Algorithm: {self.algorithm}, Hyperparameters: {self.hyperparameters}, Reward Code: {self.reward_code}"
@@ -275,7 +276,7 @@ class AgentTrainerAgent:
             instructions=prompts.system_role.prompt,
             model=LitellmModel(
                 base_url="https://openrouter.ai/api/v1",
-                model="openrouter/openai/gpt-5.2",
+                model=MODEL_ID,
                 api_key=api_key,
             ),
             tools=list(train_config.get_tools().values()),
@@ -419,7 +420,7 @@ def train_baseline(total_timesteps):
         tb_log_dir=TENSORBOARD_LOGS_DIR,
         tb_log_name="baseline",
         success_threshold=SUCCESS_THRESHOLD,
-        eval_freq=total_timesteps * EVAL_FREQ_FACTOR,
+        eval_freq=int((total_timesteps * EVAL_FREQ_PERCENTAGE) // N_ENVS),
     )
 
 
@@ -427,6 +428,7 @@ async def train_eureka(main_agent: AgentTrainerAgent):
     best_iter_idx = None
     best_reward_session_history = None
     best_train_config = None
+    best_success_rate = 0.0
     best_score = -float("inf")
 
     # --- INITIAL GENERATION ---
@@ -501,11 +503,11 @@ async def train_eureka(main_agent: AgentTrainerAgent):
             ):
                 idx = future_to_idx[future]
                 try:
-                    score, reflection = future.result()
+                    success_rate, score, reflection = future.result()
                     tqdm.write(f"  > Finished Sample {idx}: Score {score:.2f}")
-                    candidates.append((idx, score, reflection))
+                    candidates.append((idx, success_rate, score, reflection))
                     write_str_to_file(
-                        f"Score: {score:.2f}\n{reflection}",
+                        reflection,
                         os.path.join(RESULTS_DIR, f"iter{iter_idx}_response{idx}.txt"),
                     )
                 except Exception as e:
@@ -521,21 +523,29 @@ async def train_eureka(main_agent: AgentTrainerAgent):
             raise Exception("No successful candidates found!")
 
         if candidates:
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            winner_idx, winner_score, winner_reflection = candidates[0]
+            candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+            winner_idx, winner_success_rate, winner_score, winner_reflection = (
+                candidates[0]
+            )
 
             tqdm.write(
-                f"Best of Iteration {iter_idx}: #{winner_idx} with score {winner_score:.2f}"
+                f"Best of Iteration {iter_idx}: #{winner_idx} with success rate {winner_success_rate:.2f} and score {winner_score:.2f}"
             )
             write_str_to_file(
-                f"Idx: {winner_idx}\nScore: {winner_score:.2f}",
+                f"Idx: {winner_idx}\nSuccess Rate: {winner_success_rate:.2f}\nScore: {winner_score:.2f}",
                 os.path.join(RESULTS_DIR, f"iter{iter_idx}_winner.txt"),
             )
 
             winner_session_history = await agents[winner_idx].session.get_items()
 
-            if float(winner_score) > float(best_score):
-                tqdm.write(f"New Global Best Score: {winner_score:.2f}")
+            if (winner_success_rate > best_success_rate) or (
+                winner_success_rate == best_success_rate
+                and float(winner_score) > float(best_score)
+            ):
+                tqdm.write(
+                    f"New Global Best: Success Rate {winner_success_rate:.2f} and Score {winner_score:.2f}"
+                )
+                best_success_rate = winner_success_rate
                 best_score = float(winner_score)
                 best_reward_session_history = winner_session_history
                 best_train_config = deepcopy(agents[winner_idx].train_config)
@@ -568,7 +578,7 @@ async def train_eureka(main_agent: AgentTrainerAgent):
             )
 
     tqdm.write(
-        f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with score {best_score}"
+        f"Best iteration: iter{best_iter_idx[0]}, response{best_iter_idx[1]} with success rate {best_success_rate:.2f} and score {best_score}"
     )
     return best_score, best_iter_idx, best_reward_session_history, best_train_config
 
@@ -613,7 +623,7 @@ async def main():
     #             pass
     #         retry_count += 1
 
-    #     score, reflection = train_and_eval(
+    #     success_rate, score, reflection = train_and_eval(
     #         env_id=ENV_ID,
     #         env_kwargs=ENV_KWARGS,
     #         algorithm=agent.train_config.algorithm,

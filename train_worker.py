@@ -95,6 +95,7 @@ Success rate (reward > {success_threshold}): {success_rate: .2f}
     )
 
     return (
+        success_rate,
         np.mean(eval_callback.evaluations_results),
         reflection_callback.get_reflection_summary(feedback_freq) + eval_feedback,
     )
