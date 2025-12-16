@@ -10,7 +10,10 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Dict, List
 
+import optuna
 from openai.types import Reasoning
+from optuna.pruners import MedianPruner
+from optuna.samplers import TPESampler
 
 # Import tqdm
 from stable_baselines3 import A2C, DDPG, DQN, PPO, SAC, TD3
@@ -403,12 +406,14 @@ def write_str_to_file(string: str, file_path: str):
         f.write(string)
 
 
-def train_baseline(total_timesteps):
-    train_and_eval(
+def train_baseline(
+    name: str, total_timesteps, hyperparams: dict = {"policy": "MlpPolicy"}
+):
+    return train_and_eval(
         env_id=ENV_ID,
         env_kwargs=ENV_KWARGS,
-        algorithm=PPO,
-        hyperparameters={"policy": "MlpPolicy"},
+        algorithm=SAC,
+        hyperparameters=hyperparams,
         n_envs=N_ENVS,
         wrapper_class=EurekaWrapper,
         wrapper_kwargs={"is_eval": True},
@@ -418,7 +423,7 @@ def train_baseline(total_timesteps):
         model_save_dir=BEST_MODELS_DIR,
         eval_log_dir=EVAL_LOGS_DIR,
         tb_log_dir=TENSORBOARD_LOGS_DIR,
-        tb_log_name="baseline",
+        tb_log_name=name,
         success_threshold=SUCCESS_THRESHOLD,
         eval_freq=int((total_timesteps * EVAL_FREQ_PERCENTAGE) // N_ENVS),
     )
@@ -583,34 +588,103 @@ async def train_eureka(main_agent: AgentTrainerAgent):
     return best_score, best_iter_idx, best_reward_session_history, best_train_config
 
 
+def optimize_sac(trial):
+    """Learning hyperparamters we want to optimize"""
+    return {
+        "policy": "MlpPolicy",
+        "learning_rate": trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True),
+        "buffer_size": trial.suggest_categorical("buffer_size", [10000, 50000, 100000]),
+        "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256]),
+        "ent_coef": "auto",
+        "gamma": trial.suggest_categorical("gamma", [0.9, 0.95, 0.98, 0.99]),
+        "tau": trial.suggest_categorical("tau", [0.005, 0.01, 0.02]),
+        "train_freq": trial.suggest_categorical("train_freq", [1, 4, 8, 16]),
+        "gradient_steps": trial.suggest_categorical("gradient_steps", [1, 4, 8, 16]),
+        "learning_starts": 1000,
+    }
+
+
+optimize_cnt = 0
+
+
+def objective(trial):
+    hyperparams = optimize_sac(trial)
+    _, score, _ = train_baseline(
+        name=f"optuna-{optimize_cnt}",
+        total_timesteps=50_000,
+        hyperparams=hyperparams,
+    )
+    return score
+
+
+def train_optuna_baseline(total_timesteps):
+    study = optuna.create_study(
+        study_name=ENV_ID,
+        direction="maximize",
+        sampler=TPESampler(),
+        pruner=MedianPruner(n_startup_trials=5, n_warmup_steps=2),
+    )
+
+    # 6. Optimize
+    print("Optimization started...")
+    try:
+        study.optimize(
+            objective, n_trials=20, timeout=600
+        )  # Stop after 20 trials or 10 mins
+    except KeyboardInterrupt:
+        print("Interrupted by user.")
+
+    # 7. Print Results
+    print("------------------------------------------------")
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"  Value: {trial.value}")
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
+
+    write_str_to_file(
+        f"Best trial:\n  Value: {trial.value}\n  Params:\n{trial.params}",
+        os.path.join(RESULTS_DIR, "best_trial.txt"),
+    )
+
+    best_params = trial.params.copy()
+
+    train_baseline(
+        name="best-optuna", total_timesteps=total_timesteps, hyperparams=best_params
+    )
+
+
 async def main():
     os.makedirs(REWARD_OUTPUT_DIR, exist_ok=True)
     os.makedirs(BEST_MODELS_DIR, exist_ok=True)
     os.makedirs(TENSORBOARD_LOGS_DIR, exist_ok=True)
     # # Train baseline
-    # train_baseline()
+    # train_baseline(name="baseline", total_timesteps=1_000_000)
 
-    train_config = TrainingConfig()
-    agent = AgentTrainerAgent(train_config, "main_session")
+    train_optuna_baseline(total_timesteps=1_000_000)
 
-    await agent.load_background_context()
-    await agent.select_algorithm()
+    # train_config = TrainingConfig()
+    # agent = AgentTrainerAgent(train_config, "main_session")
 
-    # Train Eureka
-    (
-        best_score,
-        best_iter_idx,
-        best_reward_session_history,
-        best_train_config,
-    ) = await train_eureka(agent)
-    agent.train_config = best_train_config
+    # await agent.load_background_context()
+    # await agent.select_algorithm()
 
-    # HPO
-    await agent.clear_history()
-    await agent.load_history(best_reward_session_history)
+    # # Train Eureka
+    # (
+    #     best_score,
+    #     best_iter_idx,
+    #     best_reward_session_history,
+    #     best_train_config,
+    # ) = await train_eureka(agent)
+    # agent.train_config = best_train_config
 
-    with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
-        pickle.dump(best_reward_session_history, f)
+    # # HPO
+    # await agent.clear_history()
+    # await agent.load_history(best_reward_session_history)
+
+    # with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
+    #     pickle.dump(best_reward_session_history, f)
 
     # retry_count = 0
     # for i in tqdm(range(HPO_ITERATIONS)):
