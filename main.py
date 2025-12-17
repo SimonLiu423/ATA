@@ -717,7 +717,7 @@ async def main():
     best_train_config = None
 
     for i in tqdm(range(HPO_ITERATIONS)):
-        agent.suggest_hyperparameters()
+        await agent.suggest_hyperparameters()
 
         success_rate, score, reflection = train_and_eval(
             env_id=ENV_ID,
