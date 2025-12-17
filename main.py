@@ -773,7 +773,7 @@ async def main():
     )
 
     train_config.algorithm = SAC
-    train_config.total_timesteps = 1_000_000
+    train_config.set_total_timesteps(1_000_000)
     with open(reward_code_path, "r") as f:
         train_config.reward_code = f.read()
 
