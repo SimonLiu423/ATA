@@ -176,7 +176,7 @@ class TrainingConfig:
             return {"success": True}
 
         @function_tool
-        def suggest_hyperparameters(
+        def suggest_hyperparameters_ppo(
             policy: str,
             learning_rate: float,
             n_steps: int,
@@ -195,8 +195,9 @@ class TrainingConfig:
             target_kl: float | str,
         ):
             """
-            Suggest a set of hyperparameters for the selected algorithm.
+            Suggest a set of hyperparameters for PPO.
             The suggested hyperparameters will be used to train the RL agent.
+            Only use this function if you are using PPO.
 
             args:
                     policy (str): The policy model to use.
@@ -252,7 +253,78 @@ class TrainingConfig:
                 "sde_sample_freq": sde_sample_freq,
                 "target_kl": target_kl,
             }
-            sig = inspect.signature(self.algorithm)
+            sig = inspect.signature(PPO)
+            try:
+                sig.bind(env=ENV_ID, device=DEVICE, **hyperparameters)
+                self.hyperparameters = hyperparameters
+                self.new_hp = True
+                return {"success": True}
+            except TypeError as e:
+                return {"success": False, "error": str(e)}
+
+        @function_tool
+        def suggest_hyperparameters_sac(
+            policy: str,
+            learning_rate: float,
+            buffer_size: int,
+            learning_starts: int,
+            batch_size: int,
+            tau: float,
+            gamma: float,
+            train_freq: int,
+            gradient_steps: int,
+            n_steps: int,
+            ent_coef: str | float,
+            target_update_interval: int,
+            target_entropy: str | float,
+            use_sde: bool,
+            sde_sample_freq: int,
+            use_sde_at_warmup: bool,
+        ):
+            """
+            Suggest a set of hyperparameters for SAC.
+            The suggested hyperparameters will be used to train the RL agent.
+            Only use this function if you are using SAC.
+
+            args:
+                    policy (str): The policy model to use.
+                    learning_rate (float): learning rate for adam optimizer, the same learning rate will be used for all networks (Q-Values, Actor and Value function) it can be a function of the current progress remaining (from 1 to 0).
+                    buffer_size (int): size of the replay buffer
+                    learning_starts (int): how many steps of the model to collect transitions for before learning starts
+                    batch_size (int): Minibatch size for each gradient update
+                    tau (float): the soft update coefficient (“Polyak update”, between 0 and 1)
+                    gamma (float): The discount factor.
+                    train_freq (int): Update the model every train_freq steps
+                    gradient_steps (int): How many gradient steps to do after each rollout. Set to -1 means to do as many gradient
+                    n_steps (int): When n_step > 1, uses n-step return (with the NStepReplayBuffer) when updating the Q-value network.
+                    ent_coef (str | float): Entropy regularization coefficient. (Equivalent to inverse of reward scale in the original SAC paper.) Controlling exploration/exploitation trade-off. Set it to ‘auto’ to learn it automatically (and ‘auto_0.1’ for using 0.1 as initial value).
+                    target_update_interval (int): update the target network every target_network_update_freq gradient steps.
+                    target_entropy (str | float): target entropy when learning ent_coef (ent_coef = 'auto').
+                    use_sde (bool): Whether to use generalized State Dependent Exploration (gSDE) instead of action noise exploration (default: False)
+                    sde_sample_freq (int): Sample a new noise matrix every n steps when using gSDE Default: -1 (only sample at the beginning of the rollout).
+                    use_sde_at_warmup (bool): Whether to use gSDE instead of uniform sampling during the warm up phase (before learning starts).
+            returns:
+                    dict: Success status or error message.
+            """
+            hyperparameters = {
+                "policy": policy,
+                "learning_rate": learning_rate,
+                "buffer_size": buffer_size,
+                "learning_starts": learning_starts,
+                "batch_size": batch_size,
+                "tau": tau,
+                "gamma": gamma,
+                "train_freq": train_freq,
+                "gradient_steps": gradient_steps,
+                "n_steps": n_steps,
+                "ent_coef": ent_coef,
+                "target_update_interval": target_update_interval,
+                "target_entropy": target_entropy,
+                "use_sde": use_sde,
+                "sde_sample_freq": sde_sample_freq,
+                "use_sde_at_warmup": use_sde_at_warmup,
+            }
+            sig = inspect.signature(SAC)
             try:
                 sig.bind(env=ENV_ID, device=DEVICE, **hyperparameters)
                 self.hyperparameters = hyperparameters
@@ -264,7 +336,10 @@ class TrainingConfig:
         return {
             "algorithm": select_algorithm,
             "reward": edit_reward,
-            "hyperparameters": suggest_hyperparameters,
+            "hyperparameters": [
+                suggest_hyperparameters_ppo,
+                suggest_hyperparameters_sac,
+            ],
         }
 
 
@@ -353,7 +428,7 @@ class AgentTrainerAgent:
             raise Exception("No new code generated.")
 
     async def suggest_hyperparameters(self):
-        self.agent.tools = [self.train_config.get_tools()["hyperparameters"]]
+        self.agent.tools = self.train_config.get_tools()["hyperparameters"]
         await Runner.run(
             self.agent,
             prompts.suggest_hps.prompt.format(
