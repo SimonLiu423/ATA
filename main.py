@@ -17,6 +17,7 @@ from optuna.samplers import TPESampler
 
 # Import tqdm
 from stable_baselines3 import A2C, DDPG, DQN, PPO, SAC, TD3
+from stable_baselines3.common.evaluation import evaluate_policy
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as async_tqdm
 
@@ -611,7 +612,7 @@ def objective(trial):
     hyperparams = optimize_sac(trial)
     _, score, _ = train_baseline(
         name=f"optuna-{optimize_cnt}",
-        total_timesteps=50_000,
+        total_timesteps=1_000_000,
         hyperparams=hyperparams,
     )
     return score
@@ -662,7 +663,7 @@ async def main():
     # # Train baseline
     # train_baseline(name="baseline", total_timesteps=1_000_000)
 
-    train_optuna_baseline(total_timesteps=1_000_000)
+    # train_optuna_baseline(total_timesteps=1_000_000)
 
     # train_config = TrainingConfig()
     # agent = AgentTrainerAgent(train_config, "main_session")
@@ -679,62 +680,91 @@ async def main():
     # ) = await train_eureka(agent)
     # agent.train_config = best_train_config
 
-    # # HPO
-    # await agent.clear_history()
-    # await agent.load_history(best_reward_session_history)
-
     # with open(os.path.join(OUTPUT_DIR, "best_session_history.pkl"), "wb") as f:
-    #     pickle.dump(best_reward_session_history, f)
+    # pickle.dump(best_reward_session_history, f)
 
-    # retry_count = 0
-    # for i in tqdm(range(HPO_ITERATIONS)):
-    #     while retry_count < RETRY_COUNT:
-    #         # Retry until successful hyperparameter suggestion
-    #         try:
-    #             await agent.suggest_hyperparameters()
-    #             break
-    #         except Exception as e:
-    #             pass
-    #         retry_count += 1
+    train_config = TrainingConfig()
+    agent = AgentTrainerAgent(train_config, "main_session")
 
-    #     success_rate, score, reflection = train_and_eval(
-    #         env_id=ENV_ID,
-    #         env_kwargs=ENV_KWARGS,
-    #         algorithm=agent.train_config.algorithm,
-    #         hyperparameters=agent.train_config.hyperparameters,
-    #         n_envs=N_ENVS,
-    #         wrapper_class=EurekaWrapper,
-    #         wrapper_kwargs={"is_eval": False},
-    #         reward_code=agent.train_config.reward_code,
-    #         total_timesteps=TOTAL_TIMESTEPS,
-    #         feedback_freq=FEEDBACK_FREQ,
-    #         model_save_dir=BEST_MODELS_DIR,
-    #         tb_log_dir=TENSORBOARD_LOGS_DIR,
-    #         tb_log_name=f"HPO{i}",
-    #         eval_log_dir=EVAL_LOGS_DIR,
-    #         eval_freq=EVAL_FREQ,
-    #         success_threshold=SUCCESS_THRESHOLD,
-    #     )
+    experiment_path = os.path.join(
+        ".",
+        "experiments",
+        "Ant-v5-gpt-5.2-1216-0205(chosen)",
+    )
+    reward_code_path = os.path.join(
+        experiment_path,
+        "reward_codes",
+        "iter0_response9.txt",
+    )
 
-    #     if score > best_score:
-    #         best_score = score
-    #         best_train_config = deepcopy(agent.train_config)
-    #         tqdm.write(f"New Global Best Score: {best_score:.2f}")
+    train_config.algorithm = SAC
+    train_config.total_timesteps = 1_000_000
+    with open(reward_code_path, "r") as f:
+        train_config.reward_code = f.read()
 
-    #     await agent.add_feedback(reflection)
+    session_history_path = os.path.join(
+        experiment_path,
+        "best_session_history.pkl",
+    )
 
-    # tqdm.write(f"Best score: {best_score:.2f}, Best config: {best_train_config}")
+    best_reward_session_history = pickle.load(open(session_history_path, "rb"))
+
+    # # HPO
+    await agent.clear_history()
+    await agent.load_history(best_reward_session_history)
+
+    best_score = -float("inf")
+    best_train_config = None
+
+    for i in tqdm(range(HPO_ITERATIONS)):
+        success_rate, score, reflection = train_and_eval(
+            env_id=ENV_ID,
+            env_kwargs=ENV_KWARGS,
+            algorithm=agent.train_config.algorithm,
+            hyperparameters=agent.train_config.hyperparameters,
+            n_envs=N_ENVS,
+            wrapper_class=EurekaWrapper,
+            wrapper_kwargs={"is_eval": False},
+            reward_code=agent.train_config.reward_code,
+            total_timesteps=agent.train_config.total_timesteps,
+            feedback_freq=agent.train_config.feedback_freq,
+            model_save_dir=BEST_MODELS_DIR,
+            tb_log_dir=TENSORBOARD_LOGS_DIR,
+            tb_log_name=f"HPO{i}",
+            eval_log_dir=EVAL_LOGS_DIR,
+            eval_freq=agent.train_config.eval_freq,
+            success_threshold=SUCCESS_THRESHOLD,
+        )
+
+        if score > best_score:
+            best_score = score
+            best_train_config = deepcopy(agent.train_config)
+            tqdm.write(f"New Global Best Score: {best_score:.2f}")
+
+        await agent.add_feedback(reflection)
+
+    tqdm.write(f"Best score: {best_score:.2f}, Best config: {best_train_config}")
 
     # Load models
-    # models_path = [
-    #     # os.path.join("./best_models", "baseline", "best_model.zip"),
-    #     os.path.join("./best_models", "iter4_sample12", "best_model.zip"),
-    # ]
+    # models_path = os.path.join(
+    #     ".",
+    #     "experiments",
+    #     "Ant-v5-gpt-5.2-1216-0205(chosen)",
+    #     "best_models",
+    #     "iter0_sample9",
+    #     "best_model.zip",
+    # )
 
-    # env = gym.make(ENV_ID, render_mode="human", **ENV_KWARGS)
+    # env = gym.make(ENV_ID, render_mode="rgb_array", **ENV_KWARGS)
+    # model = SAC.load(models_path[0])
+    # mean_reward, std_reward = evaluate_policy(
+    #     model, env, n_eval_episodes=100, deterministic=True
+    # )
+
+    # print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
     # for model_path in models_path:
-    #     model = PPO.load(model_path)
+    #     model = SAC.load(model_path)
     #     obs, _ = env.reset()
     #     for _ in range(1000):
     #         action, _states = model.predict(obs, deterministic=True)
